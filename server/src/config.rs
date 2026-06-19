@@ -8,6 +8,7 @@ pub struct Config {
     pub jwt_refresh_expiry_days: i64,
     pub port: u16,
     pub frontend_url: String,
+    pub redis_url: String,
 }
 
 impl Config {
@@ -29,6 +30,8 @@ impl Config {
                 .context("PORT must be a number")?,
             frontend_url: var("FRONTEND_URL")
                 .unwrap_or_else(|_| "http://localhost:5173".into()),
+            redis_url: var("REDIS_URL")
+                .unwrap_or_else(|_| "redis://127.0.0.1/".into()),
         })
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{http::Method, Router};
+use dashmap::DashMap;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::{
     compression::CompressionLayer,
@@ -12,16 +13,17 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod auth;
 mod config;
 mod error;
+mod game;
 mod models;
 mod routes;
 mod state;
+mod store;
 
 use config::Config;
 use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Load .env if present (dev only — production uses real env vars)
     dotenvy::dotenv().ok();
 
     tracing_subscriber::registry()
@@ -40,15 +42,19 @@ async fn main() -> anyhow::Result<()> {
         .max_connections(20)
         .connect(&config.database_url)
         .await?;
-
     tracing::info!("connected to PostgreSQL");
 
     sqlx::migrate!("./migrations").run(&db).await?;
     tracing::info!("migrations applied");
 
+    let redis = redis::Client::open(config.redis_url.as_str())?;
+    tracing::info!("Redis client ready");
+
     let state = AppState {
         db,
         config: Arc::new(config),
+        redis,
+        rooms: Arc::new(DashMap::new()),
     };
 
     let cors = CorsLayer::new()
