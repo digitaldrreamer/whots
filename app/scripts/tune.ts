@@ -419,10 +419,11 @@ async function main(): Promise<void> {
 					const score = quickObjective(level, testParams, GAMES_PER_EVAL);
 
 					if (score > bestLevelScore + 0.001) {
+						const delta = score - bestLevelScore;
 						bestLevelScore = score;
 						bestLevelParams = candidate;
 						process.stdout.write(
-							`  ${level.padEnd(12)} ${key.padEnd(18)} ${current.toFixed(3)} → ${candidate[key].toFixed(3)}  (Δobj ${((score - bestLevelScore) * 100 + 0.1).toFixed(1)}%)\n`
+							`  ${level.padEnd(12)} ${key.padEnd(18)} ${current.toFixed(3)} → ${candidate[key].toFixed(3)}  (Δobj ${(delta * 100).toFixed(1)}%)\n`
 						);
 					}
 				}

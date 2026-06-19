@@ -18,18 +18,13 @@ export const setupPlays: ScoringModule = (candidate: Candidate, ctx: ModuleConte
 			? candidate.card
 			: { kind: 'whot', value: 20, calledShape: candidate.calledShape };
 
-	// Remove the played card from our hand to see what's left
-	const remainingHand =
+	// Remove exactly one instance of the played card from our hand
+	const playedIndex = player.hand.findIndex((c) =>
 		candidate.kind === 'play-suit'
-			? player.hand.filter(
-					(c) =>
-						!(
-							isSuitCard(c) &&
-							c.shape === candidate.card.shape &&
-							c.value === candidate.card.value
-						)
-				)
-			: player.hand.filter((c) => !isWhotCard(c));
+			? isSuitCard(c) && c.shape === candidate.card.shape && c.value === candidate.card.value
+			: isWhotCard(c)
+	);
+	const remainingHand = player.hand.filter((_, i) => i !== playedIndex);
 
 	// Playing the last card — always the right move
 	if (remainingHand.length === 0) return 50;

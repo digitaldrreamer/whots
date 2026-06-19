@@ -3,6 +3,7 @@ import type { Difficulty, GameMode, GameState, Player } from '../src/lib/game/ty
 import { createGame, createPlayerId, drawCard, playCard } from '../src/lib/game/state.js';
 import type { PlayAction } from '../src/lib/game/state.js';
 import { selectMove, selectMoveTeeNoble } from '../src/lib/game/computer/index.js';
+import { shuffle } from '../src/lib/game/deck.js';
 
 // --- Config ---
 
@@ -212,7 +213,7 @@ let timeouts4p = 0;
 for (const combo of combos4p) {
 	for (let i = 0; i < GAMES_PER_4P_COMBO; i++) {
 		// Shuffle seating each game to eliminate first-player bias
-		const seated = [...combo].sort(() => Math.random() - 0.5);
+		const seated = shuffle(combo);
 		const winnerIdx = simulateNPlayerGame(seated);
 		if (winnerIdx === null) {
 			timeouts4p++;
