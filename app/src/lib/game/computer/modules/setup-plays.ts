@@ -1,4 +1,4 @@
-import { isSuitCard, isWhotCard } from '../../guards.js';
+import { isActionCard, isSuitCard, isWhotCard } from '../../guards.js';
 import { getValidMoves } from '../../moves.js';
 import type { TopCard } from '../../types.js';
 import type { Candidate, ModuleContext, ScoringModule } from '../types.js';
@@ -31,9 +31,24 @@ export const setupPlays: ScoringModule = (candidate: Candidate, ctx: ModuleConte
 				)
 			: player.hand.filter((c) => !isWhotCard(c));
 
+	// Playing the last card — always the right move
+	if (remainingHand.length === 0) return 50;
+
 	// Count how many of our remaining cards could play against the simulated top
 	const followUpMoves = getValidMoves(remainingHand, simulatedTop, null, ctx.state.mode);
 
-	// Scale 0–3: each follow-up option adds a small bonus
-	return followUpMoves.length * 1.5;
+	// In N-player games the top card will change N-1 times before we play again,
+	// so setup quality is less predictable. Scale scores down accordingly.
+	const scale = 1 / Math.max(1, ctx.state.players.length - 1);
+
+	if (followUpMoves.length === 0) {
+		// Action cards disrupt the opponent regardless of our follow-up position;
+		// don't penalise them for landing on an awkward shape.
+		if (candidate.kind === 'play-suit' && isActionCard(candidate.card)) return 0;
+		// Non-action play that leaves us with nothing to follow — strong deterrent
+		return -20 * scale;
+	}
+
+	// Cap at 6 so large hands don't overwhelm action-awareness in the score hierarchy
+	return Math.min(6, followUpMoves.length * 1.5) * scale;
 };

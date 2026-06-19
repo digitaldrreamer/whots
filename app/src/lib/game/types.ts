@@ -137,7 +137,8 @@ export const DIFFICULTY_MODULES: Record<Difficulty, readonly ReasoningModule[]> 
 		'action-awareness',
 		'threat-detection',
 		'card-probability',
-		'whot-intelligence'
+		'whot-intelligence',
+		'setup-plays'
 	],
 	jagaban: [
 		'hand-thinning',
@@ -145,8 +146,8 @@ export const DIFFICULTY_MODULES: Record<Difficulty, readonly ReasoningModule[]> 
 		'threat-detection',
 		'card-probability',
 		'whot-intelligence',
-		'anticipation',
-		'setup-plays'
+		'setup-plays',
+		'anticipation'
 	]
 };
 

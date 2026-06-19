@@ -7,6 +7,7 @@ import { selectMove, selectMoveTeeNoble } from '../src/lib/game/computer/index.j
 // --- Config ---
 
 const GAMES_PER_MATCHUP = 2000;
+const GAMES_PER_4P_COMBO = 200;
 const MODE: GameMode = 'stack';
 const MAX_TURNS = 600; // safety cap per game
 
@@ -62,6 +63,42 @@ function simulateGame(levelA: Level, levelB: Level): 0 | 1 | null {
 	return null; // timeout / draw
 }
 
+// Returns the index within `levels` of the winner, or null on timeout
+function simulateNPlayerGame(levels: Level[]): number | null {
+	const players = levels.map((lvl, i) => makePlayer(i, lvl));
+	let state = createGame(players, MODE);
+	let turns = 0;
+	const n = players.length;
+
+	while (state.phase === 'playing' && turns++ < MAX_TURNS) {
+		const idx = state.currentPlayerIndex;
+		const player = state.players[idx];
+		if (player === undefined) break;
+
+		const action = chooseAction(state, idx, player);
+
+		try {
+			state = action === 'draw' ? drawCard(state, idx) : playCard(state, idx, action);
+		} catch {
+			state = { ...state, currentPlayerIndex: (idx + 1) % n };
+		}
+	}
+
+	if (!state.winner) return null;
+	return players.findIndex((p) => p.id === state.winner?.id);
+}
+
+function combinations<T>(items: T[], k: number): T[][] {
+	if (k === 0) return [[]];
+	if (items.length < k) return [];
+	const [first, ...rest] = items;
+	if (first === undefined) return [];
+	return [
+		...combinations(rest, k - 1).map((combo) => [first, ...combo]),
+		...combinations(rest, k)
+	];
+}
+
 function runMatchup(
 	a: Level,
 	b: Level,
@@ -71,9 +108,11 @@ function runMatchup(
 		winsB = 0,
 		timeouts = 0;
 	for (let i = 0; i < n; i++) {
-		const r = simulateGame(a, b);
-		if (r === 0) winsA++;
-		else if (r === 1) winsB++;
+		// Alternate first player to eliminate seating bias
+		const aFirst = i % 2 === 0;
+		const r = simulateGame(aFirst ? a : b, aFirst ? b : a);
+		if (r === 0) { if (aFirst) winsA++; else winsB++; }
+		else if (r === 1) { if (aFirst) winsB++; else winsA++; }
 		else timeouts++;
 	}
 	return { winsA, winsB, timeouts };
@@ -150,6 +189,55 @@ const ranked = ALL_LEVELS.map((lvl) => {
 for (const { lvl, avg } of ranked) {
 	const bar = '█'.repeat(Math.round(avg * 30)).padEnd(30);
 	console.log(`  ${lvl.padEnd(12)}  ${bar}  ${(avg * 100).toFixed(1)}%`);
+}
+
+console.log();
+
+// --- 4-player tournament ---
+
+const combos4p = combinations(ALL_LEVELS, 4);
+const totalGames4p = combos4p.length * GAMES_PER_4P_COMBO;
+console.log(
+	`\nSimulating ${GAMES_PER_4P_COMBO} × ${combos4p.length} combos = ${totalGames4p.toLocaleString()} 4-player games (${MODE} mode)...\n`
+);
+
+const wins4p: Partial<Record<Level, number>> = {};
+const plays4p: Partial<Record<Level, number>> = {};
+for (const lvl of ALL_LEVELS) {
+	wins4p[lvl] = 0;
+	plays4p[lvl] = 0;
+}
+let timeouts4p = 0;
+
+for (const combo of combos4p) {
+	for (let i = 0; i < GAMES_PER_4P_COMBO; i++) {
+		// Shuffle seating each game to eliminate first-player bias
+		const seated = [...combo].sort(() => Math.random() - 0.5);
+		const winnerIdx = simulateNPlayerGame(seated);
+		if (winnerIdx === null) {
+			timeouts4p++;
+		} else {
+			for (const lvl of combo) plays4p[lvl] = (plays4p[lvl] ?? 0) + 1;
+			const winnerLevel = seated[winnerIdx];
+			if (winnerLevel !== undefined) wins4p[winnerLevel] = (wins4p[winnerLevel] ?? 0) + 1;
+		}
+	}
+}
+
+console.log('── 4-player win rates (random baseline: 25%) ───────────────────────────────────\n');
+
+const ranked4p = ALL_LEVELS.map((lvl) => ({
+	lvl,
+	rate: (wins4p[lvl] ?? 0) / Math.max(1, plays4p[lvl] ?? 0)
+})).sort((a, b) => b.rate - a.rate);
+
+for (const { lvl, rate } of ranked4p) {
+	const bar = '█'.repeat(Math.round(rate * 80)).padEnd(20);
+	console.log(`  ${lvl.padEnd(12)}  ${bar}  ${(rate * 100).toFixed(1)}%`);
+}
+
+if (timeouts4p > 0) {
+	console.log(`\n⚠  ${timeouts4p} 4-player game(s) hit the ${MAX_TURNS}-turn limit and were excluded.`);
 }
 
 console.log();
