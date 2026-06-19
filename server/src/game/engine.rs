@@ -5,7 +5,7 @@ use crate::game::{
     deck::shuffled_deck,
     effects::{suit_card_effect, ActionEffect},
     moves::{can_play, valid_moves},
-    types::{Action, Card, GameMode, GamePhase, GameState, PendingEffect, Seat, Shape, TopCard, SUIT_VALUES},
+    types::{Action, Card, GameMode, GamePhase, GameState, GameStateView, PendingEffect, Seat, SeatKind, SeatView, Shape, TopCard, SUIT_VALUES},
 };
 
 const INITIAL_HAND_SIZE: usize = 5;
@@ -277,6 +277,38 @@ pub fn apply_action(
         Action::PlaySuit { shape, value } => apply_suit_card(state, seat_index, shape, value),
         Action::PlayWhot { called_shape } => apply_whot_card(state, seat_index, called_shape),
         Action::Draw => apply_draw(state, seat_index),
+    }
+}
+
+/// Build a player-specific view of the game: the viewer sees their own hand in full;
+/// all other seats have an empty hand with only hand_size reflecting truth.
+pub fn make_view(state: &GameState, viewer_user_id: Option<Uuid>) -> GameStateView {
+    let viewer_seat = viewer_user_id.and_then(|uid| {
+        state.seats.iter().position(|s| {
+            matches!(&s.kind, SeatKind::Human { user_id } if *user_id == uid)
+        })
+    });
+
+    GameStateView {
+        id:   state.id,
+        mode: state.mode,
+        seats: state
+            .seats
+            .iter()
+            .enumerate()
+            .map(|(i, seat)| SeatView {
+                name:      seat.name.clone(),
+                kind:      seat.kind.clone(),
+                hand:      if Some(i) == viewer_seat { seat.hand.clone() } else { vec![] },
+                hand_size: seat.hand.len(),
+            })
+            .collect(),
+        stock_size:         state.stock_pile.len(),
+        discard_top:        state.top_card,
+        current_seat_index: state.current_seat_index,
+        phase:              state.phase,
+        pending_effect:     state.pending_effect.clone(),
+        winner_index:       state.winner_index,
     }
 }
 

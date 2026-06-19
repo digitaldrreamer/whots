@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{http::Method, Router};
 use dashmap::DashMap;
@@ -9,6 +9,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 mod auth;
 mod config;
@@ -57,6 +58,9 @@ async fn main() -> anyhow::Result<()> {
         rooms: Arc::new(DashMap::new()),
     };
 
+    // Background task: mark and evict games idle for > 30 minutes
+    tokio::spawn(cleanup_task(state.db.clone(), state.redis.clone()));
+
     let cors = CorsLayer::new()
         .allow_origin(origin)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
@@ -75,4 +79,36 @@ async fn main() -> anyhow::Result<()> {
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+// ── Abandoned-game cleanup ─────────────────────────────────────────────────────
+
+async fn cleanup_task(db: sqlx::PgPool, redis_client: redis::Client) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(300)).await;
+        match abandoned_game_ids(&db).await {
+            Ok(ids) if !ids.is_empty() => {
+                tracing::info!("evicting {} abandoned games", ids.len());
+                if let Ok(mut conn) = redis_client.get_multiplexed_tokio_connection().await {
+                    for id in ids {
+                        let _ = store::game_store::delete(&mut conn, id).await;
+                    }
+                }
+            }
+            Ok(_)   => {}
+            Err(e)  => tracing::warn!("cleanup task error: {e}"),
+        }
+    }
+}
+
+async fn abandoned_game_ids(db: &sqlx::PgPool) -> anyhow::Result<Vec<Uuid>> {
+    let ids = sqlx::query_scalar::<_, Uuid>(
+        "UPDATE games SET status = 'abandoned'
+         WHERE status = 'playing'
+           AND last_activity_at < NOW() - INTERVAL '30 minutes'
+         RETURNING id",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(ids)
 }

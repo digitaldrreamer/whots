@@ -94,6 +94,29 @@ pub struct GameState {
     pub winner_index: Option<usize>,
 }
 
+/// Per-player view of a seat: own hand visible, opponents' hands hidden.
+#[derive(Debug, Clone, Serialize)]
+pub struct SeatView {
+    pub name:      String,
+    pub kind:      SeatKind,
+    pub hand:      Vec<Card>,  // populated only for the viewing player
+    pub hand_size: usize,      // always the true count
+}
+
+/// What the server sends to each client — tailored so they see only their own cards.
+#[derive(Debug, Clone, Serialize)]
+pub struct GameStateView {
+    pub id:                 Uuid,
+    pub mode:               GameMode,
+    pub seats:              Vec<SeatView>,
+    pub stock_size:         usize,
+    pub discard_top:        TopCard,
+    pub current_seat_index: usize,
+    pub phase:              GamePhase,
+    pub pending_effect:     Option<PendingEffect>,
+    pub winner_index:       Option<usize>,
+}
+
 /// The action a player (human or AI) takes on their turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
