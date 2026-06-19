@@ -9,7 +9,7 @@
  * │  Usage:                                                                    │
  * │    npx tsx scripts/tune.ts                 # run with defaults             │
  * │    npx tsx scripts/tune.ts --games 2000    # more games per eval           │
- * │    npx tsx scripts/tune.ts --sweeps 100    # more optimization sweeps      │
+ * │    npx tsx scripts/tune.ts --continuous    # restart on convergence (hours)│
  * │    npx tsx scripts/tune.ts --resume        # continue from checkpoint      │
  * │    npx tsx scripts/tune.ts --verify        # verify only, no optimization  │
  * │                                                                            │
@@ -67,13 +67,15 @@ function parseArgs(): {
 	step?: number;
 	resume: boolean;
 	verify: boolean;
+	continuous: boolean;
 } {
 	const args = process.argv.slice(2);
-	const result: ReturnType<typeof parseArgs> = { resume: false, verify: false };
+	const result: ReturnType<typeof parseArgs> = { resume: false, verify: false, continuous: false };
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
 		if (a === '--resume') result.resume = true;
 		else if (a === '--verify') result.verify = true;
+		else if (a === '--continuous') result.continuous = true;
 		else if (a === '--games' && args[i + 1]) result.games = Number(args[++i]);
 		else if (a === '--sweeps' && args[i + 1]) result.sweeps = Number(args[++i]);
 		else if (a === '--step' && args[i + 1]) result.step = Number(args[++i]);
@@ -340,9 +342,10 @@ async function main(): Promise<void> {
 	console.log('║  WHOTS AI TUNER                                          ║');
 	console.log('╚══════════════════════════════════════════════════════════╝\n');
 	console.log(`  Games per eval  : ${GAMES_PER_EVAL}`);
-	console.log(`  Max sweeps      : ${MAX_SWEEPS}`);
+	console.log(`  Max sweeps      : ${ARGS.continuous ? '∞ (continuous mode)' : MAX_SWEEPS}`);
 	console.log(`  Initial step    : ${INITIAL_STEP}`);
 	console.log(`  Mode            : ${MODE}`);
+	console.log(`  Continuous      : ${ARGS.continuous ? 'yes — restarts on convergence until Ctrl+C' : 'no'}`);
 	console.log(`  Checkpoint      : ${CHECKPOINT_PATH}`);
 	console.log();
 
@@ -372,9 +375,12 @@ async function main(): Promise<void> {
 	console.log(`\n  Baseline ordering score: ${(baseScore * 100).toFixed(1)}%\n`);
 
 	let bestParams = structuredClone(params);
-	let bestGlobalScore = baseScore;
+	let bestGlobalScore = baseScore;     // local acceptance threshold for this restart
+	let allTimeBestParams = structuredClone(params);
+	let allTimeBestScore = baseScore;    // all-time best — only this gets saved to checkpoint
 	let step = INITIAL_STEP;
-	let sweepsWithoutImprovement = 0;
+	let totalSweeps = 0;
+	let restartCount = 0;
 
 	// Graceful shutdown on Ctrl+C
 	let interrupted = false;
@@ -385,7 +391,11 @@ async function main(): Promise<void> {
 
 	// ── Main optimization loop ───────────────────────────────────────────────
 	for (let sweep = 1; sweep <= MAX_SWEEPS && !interrupted; sweep++) {
-		console.log(`\n── Sweep ${sweep}/${MAX_SWEEPS}  (step=${step.toFixed(4)}) ─────────────────────────────\n`);
+		totalSweeps++;
+		const sweepLabel = ARGS.continuous
+			? `Sweep ${sweep}/${MAX_SWEEPS}  restart #${restartCount}  total ${totalSweeps}`
+			: `Sweep ${sweep}/${MAX_SWEEPS}`;
+		console.log(`\n── ${sweepLabel}  (step=${step.toFixed(4)}) ─────────────────────────────\n`);
 
 		let improvedThisSweep = false;
 
@@ -427,10 +437,18 @@ async function main(): Promise<void> {
 				if (newGlobal >= bestGlobalScore) {
 					bestGlobalScore = newGlobal;
 					improvedThisSweep = true;
-					saveCheckpoint(bestParams, sweep, bestGlobalScore);
-					console.log(
-						`  ✓ ${level}: global ordering now ${(newGlobal * 100).toFixed(1)}%  [saved]\n`
-					);
+					if (newGlobal > allTimeBestScore) {
+						allTimeBestScore = newGlobal;
+						allTimeBestParams = structuredClone(bestParams);
+						saveCheckpoint(allTimeBestParams, totalSweeps, allTimeBestScore);
+						console.log(
+							`  ✓ ${level}: new all-time best ${(newGlobal * 100).toFixed(1)}%  [saved]\n`
+						);
+					} else {
+						console.log(
+							`  ✓ ${level}: local improvement ${(newGlobal * 100).toFixed(1)}%\n`
+						);
+					}
 				} else {
 					// Revert — this change hurt the global ordering
 					bestParams = { ...bestParams, [level]: params[level] };
@@ -441,17 +459,34 @@ async function main(): Promise<void> {
 
 		// ── End of sweep ─────────────────────────────────────────────────────
 		if (!improvedThisSweep) {
-			sweepsWithoutImprovement++;
 			if (step > MIN_STEP) {
 				step *= STEP_DECAY;
 				console.log(`  No improvement — step → ${step.toFixed(4)}`);
-				sweepsWithoutImprovement = 0;
+			} else if (ARGS.continuous) {
+				// Converged — perturb the all-time best params and restart
+				restartCount++;
+				console.log(`\n  Converged — restart #${restartCount} (perturbing all-time best)\n`);
+				const perturbStrength = 0.25;
+				const perturbed = structuredClone(allTimeBestParams);
+				for (const level of TUNABLE) {
+					for (const key of PARAM_KEYS) {
+						const jitter = (Math.random() * 2 - 1) * perturbStrength;
+						perturbed[level][key] = allTimeBestParams[level][key] + jitter;
+					}
+					perturbed[level] = clampParams(perturbed[level]);
+				}
+				params = perturbed;
+				bestParams = structuredClone(perturbed);
+				// Use the perturbed baseline as the local acceptance threshold so this
+				// restart can make progress even if it starts below the all-time best
+				const { score: perturbedBaseline } = globalRankingScore(perturbed, GAMES_PER_EVAL);
+				bestGlobalScore = perturbedBaseline;
+				step = INITIAL_STEP;
+				sweep = 0; // will be incremented to 1 at loop top
 			} else {
 				console.log('\n  Converged (step at minimum, no improvement).');
 				break;
 			}
-		} else {
-			sweepsWithoutImprovement = 0;
 		}
 	}
 
@@ -460,17 +495,19 @@ async function main(): Promise<void> {
 
 	const finalGames = Math.max(GAMES_PER_EVAL * 4, 2000);
 	console.log(`Running final verification with ${finalGames} games per matchup...\n`);
-	const { score: finalScore, matrix: finalMatrix } = globalRankingScore(bestParams, finalGames);
-	printMatrix(finalMatrix, params);
+	const { score: finalScore, matrix: finalMatrix } = globalRankingScore(allTimeBestParams, finalGames);
+	printMatrix(finalMatrix, allTimeBestParams);
 
 	console.log('\n── Tuned parameters ─────────────────────────────────────────\n');
-	printParams(bestParams);
+	printParams(allTimeBestParams);
 
 	console.log(`\n  Final ordering score : ${(finalScore * 100).toFixed(1)}% pairs correct`);
-	console.log(`  Best seen during run : ${(bestGlobalScore * 100).toFixed(1)}%`);
+	console.log(`  All-time best (tuner): ${(allTimeBestScore * 100).toFixed(1)}%`);
+	if (ARGS.continuous) console.log(`  Total restarts       : ${restartCount}`);
+	console.log(`  Total sweeps         : ${totalSweeps}`);
 	console.log(`\n  Results saved to     : ${CHECKPOINT_PATH}\n`);
 
-	saveCheckpoint(bestParams, MAX_SWEEPS, finalScore);
+	saveCheckpoint(allTimeBestParams, totalSweeps, finalScore);
 }
 
 main().catch(console.error);

@@ -15,11 +15,11 @@ cd app
 # One-shot run (500 games/eval, 50 sweeps, stack mode)
 npx tsx scripts/tune.ts
 
-# Long overnight run — more games = more stable statistics
-npx tsx scripts/tune.ts --games 2000 --sweeps 200
+# Run continuously for hours — restarts automatically on convergence
+npx tsx scripts/tune.ts --games 2000 --continuous
 
 # Resume after an interruption (reads scripts/params/best.json)
-npx tsx scripts/tune.ts --resume --sweeps 200
+npx tsx scripts/tune.ts --resume --continuous
 
 # Just verify the current checkpoint without optimizing
 npx tsx scripts/tune.ts --verify
@@ -27,6 +27,64 @@ npx tsx scripts/tune.ts --verify
 
 Press **Ctrl+C** at any time. Progress is written to `scripts/params/best.json` after every
 improvement, so nothing is lost.
+
+---
+
+## How many iterations are enough?
+
+### Empirical convergence (measured)
+
+The optimizer was run at 100 games/eval across 60 allowed sweeps. Results:
+
+| Sweep | Event |
+|-------|-------|
+| 6     | Global ordering first hit **100%** (all 21 pairs correct) |
+| 11    | **Natural convergence** — step decayed below minimum, optimizer stopped |
+| 12–60 | No further progress (these sweeps are no-ops) |
+
+The key insight: **setting `--sweeps` above ~15 buys you nothing** with coordinate descent.
+The optimizer converges in at most `ceil(log(MIN_STEP / INITIAL_STEP) / log(STEP_DECAY))` no-improvement sweeps:
+
+```
+0.15 → 0.09 → 0.054 → 0.032 → 0.019 → 0.012 → 0.007 → 0.004 (stop)
+       ×0.6   ×0.6    ×0.6    ×0.6    ×0.6    ×0.6    ×0.6
+```
+
+**Maximum useful sweeps per restart: ~15–20** (the rest is wasted wall time).
+
+### What to do instead: `--continuous`
+
+`--continuous` replaces the sweep limit with iterated local search:
+
+1. Run coordinate descent until convergence (~11 sweeps)
+2. Lightly perturb the all-time best params (±0.25 random jitter per parameter)
+3. Evaluate the perturbed starting point as the new local baseline
+4. Run coordinate descent again from there
+5. If a new all-time best is found, save to checkpoint
+6. Repeat until Ctrl+C
+
+Each restart takes ~6–11 sweeps. With `--games 500` (~34 s/sweep) that is **~3–6 minutes per restart**,
+so over 8 hours you get **~80–160 restarts** and the optimizer has thoroughly explored the space around
+the best known solution.
+
+### Recommended `--sweeps` per restart
+
+The default `--sweeps 50` is fine — the optimizer exits early anyway. For `--continuous`, `--sweeps`
+sets the maximum sweeps *per restart window* (a safety net in case improvements keep coming for a long
+time). The default 50 is more than enough.
+
+### Speed at different game counts
+
+| `--games` | Seconds/sweep | Restarts/hour | Games/hour |
+|-----------|--------------|---------------|------------|
+| 100       | ~4 s         | ~60           | ~32 M      |
+| 500       | ~34 s        | ~10           | ~6 M       |
+| 2 000     | ~137 s       | ~2.5          | ~6 M       |
+| 5 000     | ~340 s       | ~1            | ~6 M       |
+
+The games/hour is roughly constant because `--games` scales both the signal quality and the time.
+**Recommendation: `--games 500 --continuous`** for a good balance. Use `--games 2000` if you want
+cleaner statistics and can afford fewer restarts.
 
 ---
 
@@ -121,21 +179,35 @@ To reset and start from scratch, delete `scripts/params/best.json`.
 
 | Phase | Command | Purpose |
 |-------|---------|---------|
-| **1. Warm-up** | `--games 200 --sweeps 20` | Fast exploration of the param space |
-| **2. Refine** | `--games 1000 --sweeps 100 --resume` | Tighten around good params |
-| **3. Polish** | `--games 5000 --sweeps 50 --resume` | Low-variance final values |
+| **1. Explore** | `--games 100 --continuous` | Fast exploration, many restarts, noisy signal |
+| **2. Refine** | `--games 500 --continuous --resume` | Cleaner signal, ~10 restarts/hour |
+| **3. Polish** | `--games 2000 --continuous --resume` | Low-variance statistics, ~2–3 restarts/hour |
 | **4. Verify** | `--games 10000 --verify` | Confirm global ordering holds at high sample size |
 
-Each phase resumes from the previous checkpoint. The total game count to reach a stable
-result is typically **2–5 million games**. At ~1 300 games/second on one CPU core this
-takes 30–60 minutes of wall time.
+Each phase resumes from the previous checkpoint. A complete run typically needs
+**2–10 million games** to reach a stable optimum. At ~1 300 games/second that's
+**30 minutes to 2 hours** of wall time for a meaningful result.
 
-To run longer sessions unattended:
+> **Do not use `--sweeps` with large values.** Coordinate descent converges in ~11 sweeps
+> no matter what you set. `--sweeps` only matters per restart window; the default (50) is fine.
+> Use `--continuous` to keep running, not a bigger `--sweeps` number.
+
+To run unattended overnight:
 
 ```bash
-# Run in background, log to file
-nohup npx tsx scripts/tune.ts --games 2000 --sweeps 500 --resume >> tune.log 2>&1 &
+cd app
+nohup npx tsx scripts/tune.ts --games 500 --continuous --resume >> tune.log 2>&1 &
 tail -f tune.log
+```
+
+To stop and inspect progress at any time:
+
+```bash
+# Kill the background job
+kill %1
+
+# Verify what's in the checkpoint
+npx tsx scripts/tune.ts --verify
 ```
 
 ---
