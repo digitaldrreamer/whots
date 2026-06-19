@@ -1,4 +1,8 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::Duration,
+};
 
 use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, Path, State},
@@ -32,8 +36,10 @@ pub struct HumanMove {
 pub type PlayerTxMap = DashMap<Uuid, mpsc::UnboundedSender<Arc<ServerEvent>>>;
 
 pub struct RoomHandle {
-    pub move_tx:    mpsc::Sender<HumanMove>,
-    pub player_txs: Arc<PlayerTxMap>,
+    pub move_tx:        mpsc::Sender<HumanMove>,
+    pub player_txs:     Arc<PlayerTxMap>,   // seat holders — get personalised hand
+    pub spectator_txs:  Arc<PlayerTxMap>,   // observers — all hands hidden
+    pub human_seat_ids: Arc<HashSet<Uuid>>, // who is a seat holder
 }
 
 pub type RoomRegistry = DashMap<Uuid, RoomHandle>;
@@ -78,6 +84,7 @@ pub async fn run_game_driver(
     mut state: GameState,
     mut move_rx: mpsc::Receiver<HumanMove>,
     player_txs: Arc<PlayerTxMap>,
+    spectator_txs: Arc<PlayerTxMap>,
     redis_client: redis::Client,
     db: sqlx::PgPool,
     rooms: Arc<RoomRegistry>,
@@ -95,8 +102,7 @@ pub async fn run_game_driver(
             SeatKind::Human { user_id } => {
                 loop {
                     let Some(mv) = move_rx.recv().await else {
-                        tracing::info!(%game_id, "all players disconnected");
-                        rooms.remove(&game_id);
+                        tracing::info!(%game_id, "move channel closed — room cleaned up");
                         return;
                     };
 
@@ -123,7 +129,6 @@ pub async fn run_game_driver(
             }
         }
 
-        // Persist state and update activity timestamp
         if let Err(e) = game_store::save(&mut redis, &state).await {
             tracing::warn!(%game_id, "Redis save failed: {e}");
         }
@@ -135,11 +140,12 @@ pub async fn run_game_driver(
             .and_then(|i| state.seats.get(i))
             .map(|s| s.name.clone());
 
-        // Send each connected player their own personalised view
-        broadcast_views(&state, &player_txs);
+        broadcast_views(&state, &player_txs, &spectator_txs);
 
         if game_over {
-            broadcast_event(&player_txs, Arc::new(ServerEvent::GameOver { winner_index, winner_name }));
+            let ev = Arc::new(ServerEvent::GameOver { winner_index, winner_name });
+            broadcast_raw(&player_txs, Arc::clone(&ev));
+            broadcast_raw(&spectator_txs, ev);
             if let Err(e) = save_result(&db, &state).await {
                 tracing::warn!(%game_id, "DB result save failed: {e}");
             }
@@ -150,16 +156,21 @@ pub async fn run_game_driver(
     }
 }
 
-fn broadcast_views(state: &GameState, player_txs: &PlayerTxMap) {
+fn broadcast_views(state: &GameState, player_txs: &PlayerTxMap, spectator_txs: &PlayerTxMap) {
     for entry in player_txs.iter() {
-        let uid  = *entry.key();
-        let view = make_view(state, Some(uid));
-        let _    = entry.value().send(Arc::new(ServerEvent::GameState { state: view }));
+        let view = make_view(state, Some(*entry.key()));
+        let _ = entry.value().send(Arc::new(ServerEvent::GameState { state: view }));
+    }
+    if !spectator_txs.is_empty() {
+        let sv = Arc::new(ServerEvent::GameState { state: make_view(state, None) });
+        for entry in spectator_txs.iter() {
+            let _ = entry.value().send(Arc::clone(&sv));
+        }
     }
 }
 
-fn broadcast_event(player_txs: &PlayerTxMap, ev: Arc<ServerEvent>) {
-    for entry in player_txs.iter() {
+fn broadcast_raw(map: &PlayerTxMap, ev: Arc<ServerEvent>) {
+    for entry in map.iter() {
         let _ = entry.value().send(Arc::clone(&ev));
     }
 }
@@ -182,6 +193,17 @@ async fn save_result(db: &sqlx::PgPool, state: &GameState) -> anyhow::Result<()>
     .bind(state.winner_index.map(|i| i as i32))
     .execute(db)
     .await?;
+
+    if let Some(winner) = state.winner_index {
+        sqlx::query(
+            "UPDATE game_seats SET is_winner = TRUE WHERE game_id = $1 AND seat_index = $2",
+        )
+        .bind(state.id)
+        .bind(winner as i32)
+        .execute(db)
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -199,8 +221,8 @@ pub async fn game_socket(
 async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app: AppState) {
     tracing::info!(%user_id, %game_id, "WebSocket connected");
 
-    let (move_tx, player_txs) = match ensure_room(game_id, &app).await {
-        Ok(pair) => pair,
+    let access = match ensure_room(game_id, &app).await {
+        Ok(a) => a,
         Err(e) => {
             let json = format!("{{\"type\":\"error\",\"message\":\"{e}\"}}");
             let _ = socket.send(Message::Text(json.into())).await;
@@ -208,14 +230,19 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         }
     };
 
-    // Register a personal channel for this player
+    let is_participant = access.human_seat_ids.contains(&user_id);
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<Arc<ServerEvent>>();
-    player_txs.insert(user_id, ev_tx);
 
-    // Send the current state snapshot immediately (personalised)
+    if is_participant {
+        access.player_txs.insert(user_id, ev_tx);
+    } else {
+        access.spectator_txs.insert(user_id, ev_tx);
+    }
+
+    // Send personalised (or spectator) snapshot immediately
     if let Ok(mut redis) = app.redis.get_multiplexed_tokio_connection().await {
         if let Ok(Some(gs)) = game_store::load(&mut redis, game_id).await {
-            let view = make_view(&gs, Some(user_id));
+            let view = make_view(&gs, if is_participant { Some(user_id) } else { None });
             if let Ok(json) = serde_json::to_string(&ServerEvent::GameState { state: view }) {
                 let _ = socket.send(Message::Text(json.into())).await;
             }
@@ -238,7 +265,14 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        on_client_message(&text, user_id, &move_tx, &player_txs, &app.db, &mut socket).await;
+                        if is_participant {
+                            on_client_message(
+                                &text, user_id, &access.move_tx,
+                                &access.player_txs, &access.spectator_txs,
+                                &app.db, &mut socket,
+                            )
+                            .await;
+                        }
                     }
                     Some(Ok(Message::Close(_))) | None => break,
                     _ => {}
@@ -247,7 +281,11 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         }
     }
 
-    player_txs.remove(&user_id);
+    if is_participant {
+        access.player_txs.remove(&user_id);
+    } else {
+        access.spectator_txs.remove(&user_id);
+    }
     tracing::info!(%user_id, %game_id, "WebSocket disconnected");
 }
 
@@ -256,6 +294,7 @@ async fn on_client_message(
     user_id: Uuid,
     move_tx: &mpsc::Sender<HumanMove>,
     player_txs: &Arc<PlayerTxMap>,
+    spectator_txs: &Arc<PlayerTxMap>,
     db: &sqlx::PgPool,
     socket: &mut WebSocket,
 ) {
@@ -276,14 +315,15 @@ async fn on_client_message(
         ClientEvent::RtcIce     { to, candidate } => relay_rtc(user_id, to, "ice",    candidate, player_txs, db).await,
 
         ClientEvent::ChatMessage { text } => {
-            broadcast_event(player_txs, Arc::new(ServerEvent::ChatMessage { from: user_id, text }));
+            let ev = Arc::new(ServerEvent::ChatMessage { from: user_id, text });
+            broadcast_raw(player_txs, Arc::clone(&ev));
+            broadcast_raw(spectator_txs, ev);
         }
 
         ClientEvent::SetVideo { .. } | ClientEvent::SetAudio { .. } | ClientEvent::SetChat { .. } => {}
     }
 }
 
-// Gate WebRTC relay on mutual friendship; send directly to the target player only.
 async fn relay_rtc(
     from: Uuid,
     to: Uuid,
@@ -292,12 +332,9 @@ async fn relay_rtc(
     player_txs: &Arc<PlayerTxMap>,
     db: &sqlx::PgPool,
 ) {
-    if !are_friends(db, from, to).await {
-        return;
-    }
+    if !are_friends(db, from, to).await { return; }
     if let Some(tx) = player_txs.get(&to) {
-        let ev = Arc::new(ServerEvent::RtcSignal { from, kind: kind.to_string(), payload });
-        let _ = tx.send(ev);
+        let _ = tx.send(Arc::new(ServerEvent::RtcSignal { from, kind: kind.into(), payload }));
     }
 }
 
@@ -324,21 +361,30 @@ async fn send_move(
     socket: &mut WebSocket,
 ) {
     let (tx, rx) = oneshot::channel();
-    if move_tx.send(HumanMove { user_id, action, respond: tx }).await.is_err() {
-        return;
-    }
+    if move_tx.send(HumanMove { user_id, action, respond: tx }).await.is_err() { return; }
     if let Ok(Err(msg)) = rx.await {
         let json = format!("{{\"type\":\"error\",\"message\":\"{msg}\"}}");
         let _ = socket.send(Message::Text(json.into())).await;
     }
 }
 
-async fn ensure_room(
-    game_id: Uuid,
-    app: &AppState,
-) -> anyhow::Result<(mpsc::Sender<HumanMove>, Arc<PlayerTxMap>)> {
+// ── Room access returned by ensure_room ────────────────────────────────────────
+
+struct RoomAccess {
+    move_tx:        mpsc::Sender<HumanMove>,
+    player_txs:     Arc<PlayerTxMap>,
+    spectator_txs:  Arc<PlayerTxMap>,
+    human_seat_ids: Arc<HashSet<Uuid>>,
+}
+
+async fn ensure_room(game_id: Uuid, app: &AppState) -> anyhow::Result<RoomAccess> {
     if let Some(h) = app.rooms.get(&game_id) {
-        return Ok((h.move_tx.clone(), Arc::clone(&h.player_txs)));
+        return Ok(RoomAccess {
+            move_tx:        h.move_tx.clone(),
+            player_txs:     Arc::clone(&h.player_txs),
+            spectator_txs:  Arc::clone(&h.spectator_txs),
+            human_seat_ids: Arc::clone(&h.human_seat_ids),
+        });
     }
 
     let mut redis = app.redis.get_multiplexed_tokio_connection().await?;
@@ -346,12 +392,25 @@ async fn ensure_room(
         .await?
         .ok_or_else(|| anyhow::anyhow!("game not found"))?;
 
-    let (move_tx, move_rx) = mpsc::channel::<HumanMove>(64);
-    let player_txs: Arc<PlayerTxMap> = Arc::new(DashMap::new());
+    let human_seat_ids: HashSet<Uuid> = game_state
+        .seats
+        .iter()
+        .filter_map(|s| match &s.kind {
+            SeatKind::Human { user_id } => Some(*user_id),
+            SeatKind::Ai { .. }         => None,
+        })
+        .collect();
+    let human_seat_ids = Arc::new(human_seat_ids);
+
+    let (move_tx, move_rx)   = mpsc::channel::<HumanMove>(64);
+    let player_txs:    Arc<PlayerTxMap> = Arc::new(DashMap::new());
+    let spectator_txs: Arc<PlayerTxMap> = Arc::new(DashMap::new());
 
     app.rooms.insert(game_id, RoomHandle {
-        move_tx:    move_tx.clone(),
-        player_txs: Arc::clone(&player_txs),
+        move_tx:        move_tx.clone(),
+        player_txs:     Arc::clone(&player_txs),
+        spectator_txs:  Arc::clone(&spectator_txs),
+        human_seat_ids: Arc::clone(&human_seat_ids),
     });
 
     tokio::spawn(run_game_driver(
@@ -359,10 +418,11 @@ async fn ensure_room(
         game_state,
         move_rx,
         Arc::clone(&player_txs),
+        Arc::clone(&spectator_txs),
         app.redis.clone(),
         app.db.clone(),
         Arc::clone(&app.rooms),
     ));
 
-    Ok((move_tx, player_txs))
+    Ok(RoomAccess { move_tx, player_txs, spectator_txs, human_seat_ids })
 }

@@ -3,7 +3,9 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use validator::Validate;
 
 use crate::{
@@ -135,6 +137,49 @@ pub async fn upload_contact_hashes(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── GET /users/me/games ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct PageQuery {
+    pub page: Option<i64>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct GameSummary {
+    pub id:           Uuid,
+    pub mode:         String,
+    pub status:       String,
+    pub created_at:   DateTime<Utc>,
+    pub finished_at:  Option<DateTime<Utc>>,
+    pub seat_index:   i32,
+    pub is_winner:    bool,
+    pub player_count: i64,
+}
+
+pub async fn my_games(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Query(pq): Query<PageQuery>,
+) -> Result<Json<Vec<GameSummary>>, AppError> {
+    let offset = pq.page.unwrap_or(0).max(0) * 20;
+    let games = sqlx::query_as::<_, GameSummary>(
+        "SELECT
+             g.id, g.mode, g.status, g.created_at, g.finished_at,
+             gs.seat_index, gs.is_winner,
+             (SELECT COUNT(*)::BIGINT FROM game_seats gs2 WHERE gs2.game_id = g.id) AS player_count
+         FROM game_seats gs
+         JOIN games g ON g.id = gs.game_id
+         WHERE gs.user_id = $1
+         ORDER BY g.created_at DESC
+         LIMIT 20 OFFSET $2",
+    )
+    .bind(claims.sub)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(games))
 }
 
 // ── GET /users/contacts/matches ────────────────────────────────────────────────

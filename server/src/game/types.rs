@@ -52,6 +52,20 @@ pub enum Difficulty {
     TeeNoble,
 }
 
+impl Difficulty {
+    pub fn to_db_str(self) -> &'static str {
+        match self {
+            Difficulty::Pikin      => "pikin",
+            Difficulty::Smallz     => "smallz",
+            Difficulty::IsabiSmall => "isabi_small",
+            Difficulty::Chief      => "chief",
+            Difficulty::Egbon      => "egbon",
+            Difficulty::Jagaban    => "jagaban",
+            Difficulty::TeeNoble   => "tee_noble",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GamePhase {

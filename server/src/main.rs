@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use axum::{http::Method, Router};
+use axum::{routing::get, http::Method, Router};
 use dashmap::DashMap;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::{
@@ -15,13 +15,16 @@ mod auth;
 mod config;
 mod error;
 mod game;
+mod mail;
 mod models;
 mod routes;
 mod state;
 mod store;
 
 use config::Config;
+use routes::ws::RoomRegistry;
 use state::AppState;
+use store::notification_store::NotifyTxMap;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -51,15 +54,18 @@ async fn main() -> anyhow::Result<()> {
     let redis = redis::Client::open(config.redis_url.as_str())?;
     tracing::info!("Redis client ready");
 
+    let rooms:      Arc<RoomRegistry> = Arc::new(DashMap::new());
+    let notify_txs: Arc<NotifyTxMap>  = Arc::new(DashMap::new());
+
     let state = AppState {
         db,
         config: Arc::new(config),
         redis,
-        rooms: Arc::new(DashMap::new()),
+        rooms:      Arc::clone(&rooms),
+        notify_txs: Arc::clone(&notify_txs),
     };
 
-    // Background task: mark and evict games idle for > 30 minutes
-    tokio::spawn(cleanup_task(state.db.clone(), state.redis.clone()));
+    tokio::spawn(cleanup_task(state.db.clone(), state.redis.clone(), Arc::clone(&rooms)));
 
     let cors = CorsLayer::new()
         .allow_origin(origin)
@@ -68,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true);
 
     let app = Router::new()
+        .route("/health", get(routes::health::health))   // no auth, top-level
         .nest("/api", routes::all_routes())
         .layer(cors)
         .layer(CompressionLayer::new())
@@ -83,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
 
 // ── Abandoned-game cleanup ─────────────────────────────────────────────────────
 
-async fn cleanup_task(db: sqlx::PgPool, redis_client: redis::Client) {
+async fn cleanup_task(db: sqlx::PgPool, redis_client: redis::Client, rooms: Arc<RoomRegistry>) {
     loop {
         tokio::time::sleep(Duration::from_secs(300)).await;
         match abandoned_game_ids(&db).await {
@@ -91,12 +98,15 @@ async fn cleanup_task(db: sqlx::PgPool, redis_client: redis::Client) {
                 tracing::info!("evicting {} abandoned games", ids.len());
                 if let Ok(mut conn) = redis_client.get_multiplexed_tokio_connection().await {
                     for id in ids {
+                        // Remove from in-memory registry first — this drops RoomHandle,
+                        // which drops move_tx, causing the driver task to exit cleanly.
+                        rooms.remove(&id);
                         let _ = store::game_store::delete(&mut conn, id).await;
                     }
                 }
             }
-            Ok(_)   => {}
-            Err(e)  => tracing::warn!("cleanup task error: {e}"),
+            Ok(_)  => {}
+            Err(e) => tracing::warn!("cleanup task error: {e}"),
         }
     }
 }

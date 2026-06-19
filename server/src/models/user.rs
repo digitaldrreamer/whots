@@ -12,9 +12,10 @@ pub struct User {
     #[serde(skip_serializing)]
     pub password_hash: Option<String>,
     pub avatar_url:    Option<String>,
-    pub is_guest:      bool,
-    pub created_at:    DateTime<Utc>,
-    pub updated_at:    DateTime<Utc>,
+    pub is_guest:       bool,
+    pub email_verified: bool,
+    pub created_at:     DateTime<Utc>,
+    pub updated_at:     DateTime<Utc>,
 }
 
 /// What we send back to the client — no password hash, no phone hash.

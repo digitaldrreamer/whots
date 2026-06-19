@@ -1,33 +1,55 @@
 pub mod auth;
 pub mod friends;
 pub mod games;
+pub mod health;
+pub mod notifications;
 pub mod users;
 pub mod ws;
 
+use std::sync::Arc;
+
 use axum::{routing::{delete, get, post}, Router};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+
 use crate::state::AppState;
 
 pub fn all_routes() -> Router<AppState> {
     Router::new()
-        .nest("/auth",    auth_routes())
-        .nest("/users",   user_routes())
-        .nest("/friends", friend_routes())
-        .nest("/games",   game_routes())
-        .nest("/ws",      ws_routes())
+        .nest("/auth",          auth_routes())
+        .nest("/users",         user_routes())
+        .nest("/friends",       friend_routes())
+        .nest("/games",         game_routes())
+        .nest("/notifications", notification_routes())
+        .nest("/ws",            ws_routes())
 }
 
 fn auth_routes() -> Router<AppState> {
+    // 5 requests per minute per IP — 1 per 12 s with a burst of 5
+    let conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(12)
+            .burst_size(5)
+            .finish()
+            .unwrap(),
+    );
+
     Router::new()
-        .route("/guest",    post(auth::guest))
-        .route("/register", post(auth::register))
-        .route("/login",    post(auth::login))
-        .route("/refresh",  post(auth::refresh))
-        .route("/logout",   delete(auth::logout))
+        .route("/guest",               post(auth::guest))
+        .route("/register",            post(auth::register))
+        .route("/login",               post(auth::login))
+        .route("/refresh",             post(auth::refresh))
+        .route("/logout",              delete(auth::logout))
+        .route("/forgot-password",     post(auth::forgot_password))
+        .route("/reset-password",      post(auth::reset_password))
+        .route("/verify-email",        post(auth::verify_email))
+        .route("/resend-verification", post(auth::resend_verification))
+        .layer(GovernorLayer { config: conf })
 }
 
 fn user_routes() -> Router<AppState> {
     Router::new()
         .route("/me",               get(users::me).put(users::update_me))
+        .route("/me/games",         get(users::my_games))
         .route("/search",           get(users::search))
         .route("/:username",        get(users::get_by_username))
         .route("/contacts/upload",  post(users::upload_contact_hashes))
@@ -46,10 +68,17 @@ fn friend_routes() -> Router<AppState> {
 
 fn game_routes() -> Router<AppState> {
     Router::new()
-        .route("/", post(games::create))
+        .route("/",    post(games::create))
+        .route("/:id", get(games::get_by_id))
+}
+
+fn notification_routes() -> Router<AppState> {
+    Router::new()
+        .route("/", get(notifications::list).delete(notifications::mark_all_read))
 }
 
 fn ws_routes() -> Router<AppState> {
     Router::new()
         .route("/game/:game_id", get(ws::game_socket))
+        .route("/notify",        get(notifications::notify_socket))
 }

@@ -7,7 +7,13 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{auth::AuthUser, error::AppError, models::user::PublicUser, models::User, state::AppState};
+use crate::{
+    auth::AuthUser,
+    error::AppError,
+    models::{user::PublicUser, User},
+    state::AppState,
+    store::notification_store,
+};
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct FriendRow {
@@ -89,6 +95,15 @@ pub async fn send_request(
     .execute(&state.db)
     .await?;
 
+    notification_store::push(
+        &state.db,
+        &state.notify_txs,
+        addressee.id,
+        "friend_request",
+        serde_json::json!({ "from_user_id": claims.sub, "from_username": claims.username }),
+    )
+    .await;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -117,6 +132,15 @@ pub async fn accept_request(
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound("no pending request from that user".into()));
     }
+
+    notification_store::push(
+        &state.db,
+        &state.notify_txs,
+        requester.id,
+        "friend_accepted",
+        serde_json::json!({ "by_user_id": claims.sub, "by_username": claims.username }),
+    )
+    .await;
 
     Ok(StatusCode::NO_CONTENT)
 }
