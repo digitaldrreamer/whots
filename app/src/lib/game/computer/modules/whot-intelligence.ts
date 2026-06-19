@@ -13,5 +13,5 @@ export const whotIntelligence: ScoringModule = (
 
 	const remaining = ctx.shapeRemaining[candidate.calledShape];
 	// Scale 0–8: calling a depleted shape is strongly preferred
-	return ((MAX_PER_SHAPE - remaining) / MAX_PER_SHAPE) * 8;
+	return ((MAX_PER_SHAPE - remaining) / MAX_PER_SHAPE) * 15;
 };

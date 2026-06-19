@@ -20,16 +20,15 @@ export const threatDetection: ScoringModule = (candidate: Candidate, ctx: Module
 	const threatIsNext = nextHandSize === minOpponentCards && nextHandSize <= THREAT_THRESHOLD;
 
 	if (candidate.kind === 'play-suit') {
-		// Penalty cards aimed at next player
-		if (threatIsNext && PENALTY_VALUES.has(candidate.card.value)) return 6;
-		// General market hurts everyone — good whenever any opponent is close
-		if (candidate.card.value === 14 && minOpponentCards <= THREAT_THRESHOLD) return 4;
+		// Penalty cards aimed at next player — must be large enough to tip the choice
+		// between two action cards when the threat is present
+		if (threatIsNext && PENALTY_VALUES.has(candidate.card.value)) return 20;
+		// General market hurts everyone — strong bonus whenever anyone is close
+		if (candidate.card.value === 14 && minOpponentCards <= THREAT_THRESHOLD) return 15;
 	}
 
 	if (candidate.kind === 'play-whot' && threatIsNext) {
-		// Calling a shape when the threat is next — bonus handled by whot-intelligence,
-		// but add a base bonus here for awareness that next player is dangerous
-		return 2;
+		return 5;
 	}
 
 	return 0;

@@ -13,7 +13,7 @@ export const anticipation: ScoringModule = (candidate: Candidate, ctx: ModuleCon
 	if (candidate.kind === 'play-suit') {
 		const remaining = ctx.shapeRemaining[candidate.card.shape];
 		// Low remaining → next player less likely to match by shape → harder for them
-		return ((MAX_PER_SHAPE - remaining) / MAX_PER_SHAPE) * 4;
+		return ((MAX_PER_SHAPE - remaining) / MAX_PER_SHAPE) * 5;
 	}
 
 	// For whot plays, anticipation defers to whot-intelligence which already handles shape choice

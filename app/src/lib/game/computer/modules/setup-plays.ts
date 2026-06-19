@@ -35,5 +35,5 @@ export const setupPlays: ScoringModule = (candidate: Candidate, ctx: ModuleConte
 	const followUpMoves = getValidMoves(remainingHand, simulatedTop, null, ctx.state.mode);
 
 	// Scale 0–3: each follow-up option adds a small bonus
-	return followUpMoves.length * 0.5;
+	return followUpMoves.length * 1.5;
 };

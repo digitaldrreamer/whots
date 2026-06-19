@@ -11,5 +11,5 @@ export const cardProbability: ScoringModule = (candidate: Candidate, ctx: Module
 
 	const remaining = ctx.shapeRemaining[candidate.card.shape];
 	// Scale 0–2: more cards played = higher score
-	return ((MAX_PER_SHAPE - remaining) / MAX_PER_SHAPE) * 2;
+	return ((MAX_PER_SHAPE - remaining) / MAX_PER_SHAPE) * 4;
 };

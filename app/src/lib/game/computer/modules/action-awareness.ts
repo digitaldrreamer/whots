@@ -2,12 +2,15 @@ import type { Candidate, ModuleContext, ScoringModule } from '../types.js';
 
 // Bias toward playing action cards over neutral ones.
 // 5 (pick three) is valued most since it hurts the opponent hardest.
+// Scores must dominate hand-thinning (max ~12) so action cards always win
+// over non-action cards when action-awareness is active.
+// Higher modules act as tiebreakers within this priority, not competitors.
 const ACTION_SCORES: Partial<Record<number, number>> = {
-	5: 4,  // pick three
-	2: 3,  // pick two
-	14: 3, // general market
-	1: 2,  // hold on
-	8: 2   // suspension
+	5: 30,  // pick three
+	2: 25,  // pick two
+	14: 20, // general market
+	1: 15,  // hold on
+	8: 15   // suspension
 };
 
 export const actionAwareness: ScoringModule = (candidate: Candidate, _ctx: ModuleContext): number => {
