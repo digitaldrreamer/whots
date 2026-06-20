@@ -1,4 +1,5 @@
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use crate::game::{
     ai::{
         context::{build_candidates, build_context},
@@ -11,6 +12,7 @@ use crate::game::{
     types::{Action, Difficulty, GameState},
 };
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DifficultyParams {
     pub hand_thinning:     f64,
     pub action_awareness:  f64,
@@ -83,19 +85,25 @@ fn candidate_to_action(c: Candidate) -> Action {
     }
 }
 
+/// Select move using default params for a difficulty level
 pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty) -> Action {
+    let params = default_params(difficulty);
+    select_move_with_params(state, seat_index, &params)
+}
+
+/// Select move using custom params
+pub fn select_move_with_params(state: &GameState, seat_index: usize, params: &DifficultyParams) -> Action {
     let candidates = build_candidates(state, seat_index);
     if candidates.iter().all(|c| matches!(c, Candidate::Draw)) {
         return Action::Draw;
     }
 
     let ctx = build_context(state, seat_index, candidates.clone());
-    let params = default_params(difficulty);
     let mut rng = rand::thread_rng();
 
     let mut scored: Vec<(Candidate, f64)> = candidates
         .iter()
-        .map(|c| (*c, score(c, &ctx, &params, &mut rng)))
+        .map(|c| (*c, score(c, &ctx, params, &mut rng)))
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -106,4 +114,22 @@ pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty)
     };
 
     candidate_to_action(chosen)
+}
+
+/// Make DifficultyParams public constructors
+impl DifficultyParams {
+    pub fn clamp(&mut self) {
+        macro_rules! clamp {
+            ($f:tt) => { self.$f = self.$f.max(0.0).min(4.0) };
+        }
+        clamp!(hand_thinning);
+        clamp!(action_awareness);
+        clamp!(threat_detection);
+        clamp!(card_probability);
+        clamp!(whot_intelligence);
+        clamp!(setup_plays);
+        clamp!(anticipation);
+        self.noise = self.noise.max(0.0).min(200.0);
+        self.bluff_rate = self.bluff_rate.max(0.0).min(0.5);
+    }
 }

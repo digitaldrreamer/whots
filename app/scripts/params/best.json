@@ -1,9 +1,9 @@
 {
   "meta": {
-    "sweepsCompleted": 60,
-    "gamesPerEval": 100,
-    "savedAt": "2026-06-19T07:17:48.529Z",
-    "bestGlobalScore": 1
+    "sweepsCompleted": 1,
+    "gamesPerEval": 10,
+    "savedAt": "2026-06-20T13:08:55.638Z",
+    "bestGlobalScore": 0.3330474296562158
   },
   "params": {
     "pikin": {
@@ -29,9 +29,9 @@
       "bluffRate": 0
     },
     "isabiSmall": {
-      "handThinning": 1,
+      "handThinning": 1.15,
       "actionAwareness": 1,
-      "threatDetection": 0,
+      "threatDetection": 0.15,
       "cardProbability": 0,
       "whotIntelligence": 0,
       "setupPlays": 0,
@@ -40,8 +40,8 @@
       "bluffRate": 0
     },
     "chief": {
-      "handThinning": 1,
-      "actionAwareness": 1,
+      "handThinning": 0.85,
+      "actionAwareness": 1.2999999999999998,
       "threatDetection": 1,
       "cardProbability": 0,
       "whotIntelligence": 0,
@@ -53,9 +53,9 @@
     "egbon": {
       "handThinning": 1,
       "actionAwareness": 1,
-      "threatDetection": 1,
+      "threatDetection": 0.85,
       "cardProbability": 1,
-      "whotIntelligence": 1,
+      "whotIntelligence": 0.85,
       "setupPlays": 1,
       "anticipation": 0,
       "noise": 0.1,
