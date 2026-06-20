@@ -3,8 +3,8 @@
  * │  WHOTS AI DIFFICULTY TUNER                                                 │
  * │  Coordinate-descent optimizer for DifficultyParams                         │
  * │                                                                            │
- * │  Goal: find params for each level so 2-player win rates form a strict     │
- * │  ladder: pikin < smallz < isabiSmall < chief < egbon < jagaban < tee-noble │
+ * │  Goal: find params so every higher level beats every lower level by at     │
+ * │  least 60% in both 1v1 and 4-player group games.                          │
  * │                                                                            │
  * │  Usage:                                                                    │
  * │    npx tsx scripts/tune.ts                 # run with defaults             │
@@ -43,6 +43,12 @@ const STEP_DECAY = 0.6; // shrink factor when no improvement in a sweep
 const MODE: GameMode = 'stack';
 const MAX_TURNS = 600;
 const CHECKPOINT_PATH = 'scripts/params/best.json';
+
+// Wider-margin / multiplayer targets
+const TARGET_MARGIN = 0.60; // minimum win rate for a pair to count as "dominant"
+const MULTI_WEIGHT = 0.35;  // fraction of global score from multiplayer games
+const MULTI_GAMES_RATIO = 0.4; // multiplayer games = GAMES_PER_EVAL * this
+const PERTURB_STRENGTH = 0.5;  // jitter magnitude on continuous-mode restarts
 
 // The difficulty ladder, lowest to highest
 const LADDER = [
@@ -235,6 +241,8 @@ function objectiveForLevel(
 /**
  * Quick adjacent-only objective: only vs the level immediately below and above.
  * Used during param sweeps for speed.
+ * Subtracts TARGET_MARGIN from the vs-lower term so the optimizer keeps pushing
+ * even after direction is correct — it won't stop until margins are wide enough.
  */
 function quickObjective(
 	level: Level,
@@ -247,7 +255,8 @@ function quickObjective(
 
 	if (pos > 0) {
 		const below = LADDER[pos - 1]!;
-		score += winRate(level, below, params[level], params[below], gamesPerMatchup);
+		// Reward exceeding TARGET_MARGIN, penalise falling short of it
+		score += winRate(level, below, params[level], params[below], gamesPerMatchup) - TARGET_MARGIN;
 		terms++;
 	}
 	if (pos < LADDER.length - 1) {
@@ -256,14 +265,103 @@ function quickObjective(
 		terms++;
 	}
 
-	return terms > 0 ? score / terms * 2 : 0; // normalise to same scale as full objective
+	return terms > 0 ? score / terms * 2 : 0;
+}
+
+// ── Multiplayer simulation ─────────────────────────────────────────────────────
+
+/** Run one n-player game with explicit params; return winner index or null on timeout. */
+function simulateMultiN(levels: Level[], params: Record<Level, DifficultyParams>): number | null {
+	const playerIds = levels.map((_, i) => createPlayerId(`p${i}`));
+	const players: Player[] = levels.map((lvl, i) => ({
+		id: playerIds[i]!,
+		kind: 'computer' as const,
+		name: lvl,
+		difficulty: 'pikin' as const,
+		hand: []
+	}));
+	let state = createGame(players, MODE);
+	let turns = 0;
+	const n = players.length;
+	while (state.phase === 'playing' && turns++ < MAX_TURNS) {
+		const idx = state.currentPlayerIndex;
+		const levelParams = params[levels[idx]!]!;
+		try {
+			const action = selectMoveWithParams(state, idx, levelParams);
+			state = action === 'draw' ? drawCard(state, idx) : playCard(state, idx, action);
+		} catch {
+			state = { ...state, currentPlayerIndex: (idx + 1) % n };
+		}
+	}
+	if (!state.winner) return null;
+	return playerIds.indexOf(state.winner.id);
+}
+
+/**
+ * Pick 2 filler levels spread across the ladder, avoiding hi and lo.
+ * Gives mixed-level context for 4-player games.
+ */
+function pickFillers(hi: Level, lo: Level): [Level, Level] {
+	const pool = LADDER.filter((l) => l !== hi && l !== lo);
+	// Take one from the lower half and one from the upper half of the filtered pool
+	const mid = Math.floor(pool.length / 2);
+	return [pool[mid - 1] ?? pool[0]!, pool[mid + 1] ?? pool[pool.length - 1]!];
+}
+
+/**
+ * In n-game 4-player sessions, return P(hi wins) / (P(hi wins) + P(lo wins)).
+ * Fillers create competitive context without biasing the hi/lo comparison.
+ */
+function multiplayerPairRate(
+	hi: Level,
+	lo: Level,
+	params: Record<Level, DifficultyParams>,
+	n: number
+): number {
+	const [f1, f2] = pickFillers(hi, lo);
+	const baseLevels: Level[] = [hi, lo, f1, f2];
+	let hiWins = 0;
+	let loWins = 0;
+	for (let i = 0; i < n; i++) {
+		// Shuffle seating each game to remove first-player bias
+		const seated = [...baseLevels].sort(() => Math.random() - 0.5) as Level[];
+		const winIdx = simulateMultiN(seated, params);
+		if (winIdx === null) continue;
+		const winner = seated[winIdx]!;
+		if (winner === hi) hiWins++;
+		else if (winner === lo) loWins++;
+	}
+	const total = hiWins + loWins;
+	return total === 0 ? 0.5 : hiWins / total;
+}
+
+/**
+ * Global multiplayer ordering score: for every (hi, lo) pair, measure how
+ * dominant hi is in 4-player games. Returns a 0–1 continuous score where
+ * 1.0 means every pair reaches TARGET_MARGIN in multiplayer too.
+ */
+function multiplayerGlobalScore(params: Record<Level, DifficultyParams>, gamesPerPair: number): number {
+	let totalScore = 0;
+	let pairs = 0;
+	for (let i = 0; i < LADDER.length; i++) {
+		for (let j = i + 1; j < LADDER.length; j++) {
+			const lo = LADDER[i]!;
+			const hi = LADDER[j]!;
+			const rate = multiplayerPairRate(hi, lo, params, gamesPerPair);
+			// Continuous: 0 at rate=0.5, 1.0 at rate=TARGET_MARGIN
+			totalScore += Math.min(1, Math.max(0, (rate - 0.5) / (TARGET_MARGIN - 0.5)));
+			pairs++;
+		}
+	}
+	return pairs > 0 ? totalScore / pairs : 0;
 }
 
 // ── Global ranking score ───────────────────────────────────────────────────────
 
 /**
- * Full tournament: run every pair and count how many are in the correct order.
- * Returns (correctPairs / totalPairs). Perfect = 1.0.
+ * Full tournament: run every pair and count how many exceed TARGET_MARGIN.
+ * Blends 2-player (65%) and 4-player (35%) scores.
+ * Returns the combined score (0–1) and the 2-player matrix for display.
  */
 function globalRankingScore(
 	params: Record<Level, DifficultyParams>,
@@ -282,12 +380,18 @@ function globalRankingScore(
 			const rate = winRate(hi, lo, params[hi], params[lo], gamesPerMatchup);
 			matrix[hi][lo] = rate;
 			matrix[lo][hi] = 1 - rate;
-			if (rate > 0.5) correct++;
+			// Only counts as "correct" when margin exceeds the target, not just direction
+			if (rate > TARGET_MARGIN) correct++;
 			total++;
 		}
 	}
 
-	return { score: total > 0 ? correct / total : 0, matrix };
+	const score2p = total > 0 ? correct / total : 0;
+	const multiGames = Math.max(50, Math.floor(gamesPerMatchup * MULTI_GAMES_RATIO));
+	const scoreMulti = multiplayerGlobalScore(params, multiGames);
+	const combined = (1 - MULTI_WEIGHT) * score2p + MULTI_WEIGHT * scoreMulti;
+
+	return { score: combined, matrix };
 }
 
 // ── Coordinate descent ─────────────────────────────────────────────────────────
@@ -467,7 +571,7 @@ async function main(): Promise<void> {
 				// Converged — perturb the all-time best params and restart
 				restartCount++;
 				console.log(`\n  Converged — restart #${restartCount} (perturbing all-time best)\n`);
-				const perturbStrength = 0.25;
+				const perturbStrength = PERTURB_STRENGTH;
 				const perturbed = structuredClone(allTimeBestParams);
 				for (const level of TUNABLE) {
 					for (const key of PARAM_KEYS) {
