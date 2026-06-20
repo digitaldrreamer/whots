@@ -69,7 +69,7 @@ fn friend_routes() -> Router<AppState> {
 fn game_routes() -> Router<AppState> {
     Router::new()
         .route("/",    post(games::create))
-        .route("/:id", get(games::get_by_id))
+        .route("/:id", get(games::get_by_id).delete(games::cancel))
 }
 
 fn notification_routes() -> Router<AppState> {

@@ -19,6 +19,47 @@ use crate::{
     store::{game_store, notification_store},
 };
 
+// ── DELETE /games/:id ──────────────────────────────────────────────────────────
+
+pub async fn cancel(
+    AuthUser(claims): AuthUser,
+    State(app): State<AppState>,
+    Path(game_id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    let is_participant: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM game_seats WHERE game_id = $1 AND user_id = $2)",
+    )
+    .bind(game_id)
+    .bind(claims.sub)
+    .fetch_one(&app.db)
+    .await?;
+
+    if !is_participant {
+        return Err(AppError::Forbidden);
+    }
+
+    let updated = sqlx::query_scalar::<_, Uuid>(
+        "UPDATE games SET status = 'abandoned'
+         WHERE id = $1 AND status IN ('playing', 'waiting')
+         RETURNING id",
+    )
+    .bind(game_id)
+    .fetch_optional(&app.db)
+    .await?;
+
+    if updated.is_none() {
+        return Err(AppError::NotFound("game not found or already finished".into()));
+    }
+
+    app.rooms.remove(&game_id);
+
+    if let Ok(mut conn) = app.redis.get_multiplexed_tokio_connection().await {
+        let _ = game_store::delete(&mut conn, game_id).await;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // ── POST /games ────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
