@@ -201,22 +201,6 @@ fn default_params(difficulty: Difficulty) -> DifficultyParams {
     }
 }
 
-impl DifficultyParams {
-    fn zero() -> Self {
-        Self {
-            hand_thinning: 0.0,
-            action_awareness: 0.0,
-            threat_detection: 0.0,
-            card_probability: 0.0,
-            whot_intelligence: 0.0,
-            setup_plays: 0.0,
-            anticipation: 0.0,
-            noise: 0.0,
-            bluff_rate: 0.0,
-        }
-    }
-}
-
 fn difficulty_name(d: Difficulty) -> &'static str {
     match d {
         Difficulty::Pikin => "pikin",
@@ -391,7 +375,8 @@ fn main() {
     println!("║  WHOTS AI TUNER (Rust)                                   ║");
     println!("╚══════════════════════════════════════════════════════════╝\n");
     println!("  Games per eval  : {}", args.games);
-    println!("  Max sweeps      : {}", if args.continuous { "∞ (continuous)" } else { &args.sweeps.to_string() });
+    let sweep_str = args.sweeps.to_string();
+    println!("  Max sweeps      : {}", if args.continuous { "∞ (continuous)".to_string() } else { sweep_str });
     println!("  Initial step    : {}", args.step);
     println!("  Continuous      : {}", if args.continuous { "yes" } else { "no" });
     println!("  Checkpoint      : {}\n", CHECKPOINT_PATH);
@@ -436,9 +421,9 @@ fn main() {
 
         let mut improved_this_sweep = false;
 
-        for &level in TUNABLE {
-            let level_name = difficulty_name(level);
-            let mut best_level_score = quick_objective(level, &best_params, args.games);
+        for level in TUNABLE {
+            let level_name = difficulty_name(*level);
+            let mut best_level_score = quick_objective(*level, &best_params, args.games);
             let mut best_level_params = best_params[level_name].clone();
 
             for param_idx in 0..PARAM_NAMES.len() {
@@ -462,7 +447,7 @@ fn main() {
                     candidate.clamp();
                     let mut test_params = best_params.clone();
                     test_params.insert(level_name.to_string(), candidate.clone());
-                    let score = quick_objective(level, &test_params, args.games);
+                    let score = quick_objective(*level, &test_params, args.games);
 
                     if score > best_level_score + 0.001 {
                         let delta_obj = (score - best_level_score) * 100.0;
@@ -516,8 +501,8 @@ fn main() {
                 println!("\n  Converged — restart #{} (perturbing all-time best)\n", restart_count);
                 let mut rng = rand::thread_rng();
                 let mut perturbed = all_time_best_params.clone();
-                for level in TUNABLE {
-                    let level_name = difficulty_name(level);
+                for level in TUNABLE.iter() {
+                    let level_name = difficulty_name(*level);
                     let p = &mut perturbed.get_mut(level_name).unwrap();
                     p.hand_thinning += (rng.gen::<f64>() * 2.0 - 1.0) * PERTURB_STRENGTH;
                     p.action_awareness += (rng.gen::<f64>() * 2.0 - 1.0) * PERTURB_STRENGTH;

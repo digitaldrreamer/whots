@@ -12,7 +12,7 @@ use crate::game::{
     types::{Action, Difficulty, GameState},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DifficultyParams {
     pub hand_thinning:     f64,
     pub action_awareness:  f64,
@@ -26,7 +26,7 @@ pub struct DifficultyParams {
 }
 
 impl DifficultyParams {
-    fn zero() -> Self {
+    pub fn zero() -> Self {
         Self {
             hand_thinning: 0.0, action_awareness: 0.0, threat_detection: 0.0,
             card_probability: 0.0, whot_intelligence: 0.0, setup_plays: 0.0,
