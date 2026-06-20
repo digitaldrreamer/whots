@@ -10,6 +10,7 @@ import { cardProbability } from './modules/card-probability.js';
 import { whotIntelligence } from './modules/whot-intelligence.js';
 import { anticipation } from './modules/anticipation.js';
 import { setupPlays } from './modules/setup-plays.js';
+import { selectMoveISMCTS } from './ismcts.js';
 
 const MODULE_MAP: Record<ReasoningModule, ScoringModule> = {
 	'hand-thinning': handThinning,
@@ -96,10 +97,8 @@ export function selectMove(
 	return candidateToAction(chosen);
 }
 
-// Tee-Noble always uses all modules — no difficulty tier
+// Tee-Noble uses ISMCTS — simulates possible opponent hands and picks the
+// move with the highest expected win rate across sampled worlds.
 export function selectMoveTeeNoble(state: GameState, playerIndex: number): PlayAction | 'draw' {
-	const candidates = buildCandidates(state, playerIndex);
-	const ctx = buildContext(state, playerIndex, candidates);
-	const chosen = pickBest(candidates, ctx, ALL_MODULES);
-	return candidateToAction(chosen);
+	return selectMoveISMCTS(state, playerIndex, 200);
 }
