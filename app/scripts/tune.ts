@@ -45,10 +45,10 @@ const MAX_TURNS = 600;
 const CHECKPOINT_PATH = 'scripts/params/best.json';
 
 // Wider-margin / multiplayer targets
-// Derived from ceiling test: ISMCTS tee-noble wins ~73% vs pikin at 200 sims.
-// Elo span 173 / 6 steps = 29 Elo per step → 1/(1+10^(-29/400)) = 54.1%.
-// Ladder levels are evenly spaced in Elo, so each adjacent pair targets this margin.
-const TARGET_MARGIN = 0.541; // minimum win rate for a pair to count as "dominant"
+// Derived from ceiling test: ISMCTS tee-noble (jagaban-level rollout) wins ~80.7%
+// vs pikin at 200 sims. Elo span 248 / 6 steps = 41 Elo per step →
+// 1/(1+10^(-41/400)) = 55.9%. Ladder levels are evenly spaced in Elo.
+const TARGET_MARGIN = 0.559; // minimum win rate for a pair to count as "dominant"
 const MULTI_WEIGHT = 0.35;  // fraction of global score from multiplayer games
 const MULTI_GAMES_RATIO = 0.4; // multiplayer games = GAMES_PER_EVAL * this
 const PERTURB_STRENGTH = 0.5;  // jitter magnitude on continuous-mode restarts
