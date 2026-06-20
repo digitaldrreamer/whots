@@ -8,7 +8,7 @@ pub mod ws;
 
 use std::sync::Arc;
 
-use axum::{routing::{delete, get, post}, Router};
+use axum::{routing::{delete, get, patch, post}, Router};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 
 use crate::state::AppState;
@@ -67,14 +67,25 @@ fn friend_routes() -> Router<AppState> {
 }
 
 fn game_routes() -> Router<AppState> {
+    // 10 creates/cancels per minute per IP — 1 per 6 s with burst of 3
+    let conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(3)
+            .finish()
+            .unwrap(),
+    );
     Router::new()
         .route("/",    post(games::create))
         .route("/:id", get(games::get_by_id).delete(games::cancel))
+        .layer(GovernorLayer { config: conf })
 }
 
 fn notification_routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(notifications::list).delete(notifications::mark_all_read))
+        .route("/",      get(notifications::list).delete(notifications::mark_all_read))
+        .route("/count", get(notifications::unread_count))
+        .route("/:id",   patch(notifications::mark_one_read))
 }
 
 fn ws_routes() -> Router<AppState> {

@@ -1,8 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, Path, State},
@@ -249,8 +245,17 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         }
     }
 
+    let mut heartbeat = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(30),
+        Duration::from_secs(30),
+    );
+
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => {
+                if socket.send(Message::Ping(vec![])).await.is_err() { break; }
+            }
+
             event = ev_rx.recv() => {
                 match event {
                     Some(ev) => {
@@ -274,6 +279,7 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
                             .await;
                         }
                     }
+                    Some(Ok(Message::Pong(_))) => {}
                     Some(Ok(Message::Close(_))) | None => break,
                     _ => {}
                 }

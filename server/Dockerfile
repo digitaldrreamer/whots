@@ -15,10 +15,8 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
-# Disable sqlx offline check — migrations are embedded via sqlx::migrate!
-ENV SQLX_OFFLINE=false
-# No live DB at build time; we rely on the builder's own offline-mode files if present,
-# or set SQLX_OFFLINE=true and commit the .sqlx query cache.
+# We use sqlx's runtime (builder) API throughout — no query! macros — so no
+# live database is needed at compile time.
 RUN cargo build --release --bin whots-server
 
 # ── Stage 4: runtime ──────────────────────────────────────────────────────────
