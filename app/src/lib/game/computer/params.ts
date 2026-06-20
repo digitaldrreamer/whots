@@ -87,13 +87,13 @@ export const DEFAULT_PARAMS: Record<
 > = {
 	pikin: { ...BASE, noise: 100 }, // pure random — overwhelms all module signals
 	smallz: { ...BASE, handThinning: 1 },
-	isabiSmall: { ...BASE, handThinning: 1, actionAwareness: 1 },
-	chief: { ...BASE, handThinning: 1, actionAwareness: 1, threatDetection: 1 },
+	isabiSmall: { ...BASE, handThinning: 1.15, actionAwareness: 1, threatDetection: 0.15 },
+	chief: { ...BASE, handThinning: 0.85, actionAwareness: 1.15, threatDetection: 1 },
 	egbon: {
 		...BASE,
 		handThinning: 1,
 		actionAwareness: 1,
-		threatDetection: 1,
+		threatDetection: 0.85,
 		cardProbability: 1,
 		whotIntelligence: 1,
 		setupPlays: 1
