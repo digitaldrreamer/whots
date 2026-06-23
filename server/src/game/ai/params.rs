@@ -116,6 +116,28 @@ pub fn select_move_with_params(state: &GameState, seat_index: usize, params: &Di
     candidate_to_action(chosen)
 }
 
+/// Select the *worst*-scoring legal move per the heuristic — used to build a
+/// deliberately weak "beginner" floor (Pikin) that plays plausibly but badly,
+/// which widens the bottom of the difficulty ladder.
+pub fn select_worst_move_with_params(state: &GameState, seat_index: usize, params: &DifficultyParams) -> Action {
+    let candidates = build_candidates(state, seat_index);
+    if candidates.iter().all(|c| matches!(c, Candidate::Draw)) {
+        return Action::Draw;
+    }
+
+    let ctx = build_context(state, seat_index, candidates.clone());
+    let mut rng = rand::thread_rng();
+
+    let worst = candidates
+        .iter()
+        .map(|c| (*c, score(c, &ctx, params, &mut rng)))
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(c, _)| c)
+        .unwrap_or(Candidate::Draw);
+
+    candidate_to_action(worst)
+}
+
 /// Make DifficultyParams public constructors
 impl DifficultyParams {
     pub fn clamp(&mut self) {

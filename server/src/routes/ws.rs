@@ -117,7 +117,14 @@ pub async fn run_game_driver(
 
             SeatKind::Ai { difficulty } => {
                 tokio::time::sleep(Duration::from_millis(800)).await;
-                let action = select_move(&state, seat_idx, difficulty);
+                // ISMCTS is CPU-bound (up to ~200ms for TeeNoble); run it off the
+                // async worker so it doesn't stall other games on this thread.
+                let snapshot = state.clone();
+                let action = tokio::task::spawn_blocking(move || {
+                    select_move(&snapshot, seat_idx, difficulty)
+                })
+                .await
+                .unwrap_or(Action::Draw);
                 if let Err(e) = apply_action(&mut state, seat_idx, action) {
                     tracing::error!(%game_id, seat = seat_idx, "AI invalid move: {e}");
                     let _ = apply_action(&mut state, seat_idx, Action::Draw);

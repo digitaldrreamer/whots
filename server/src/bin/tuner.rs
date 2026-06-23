@@ -25,7 +25,7 @@ use whots_server::game::{
 // ── Configuration ──────────────────────────────────────────────────────────────
 
 const GAMES_PER_EVAL: usize = 500;
-const MAX_SWEEPS: usize = 50;
+const MAX_SWEEPS: usize = 5000;
 const INITIAL_STEP: f64 = 0.15;
 const MIN_STEP: f64 = 0.005;
 const STEP_DECAY: f64 = 0.6;
