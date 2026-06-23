@@ -2,6 +2,7 @@ pub mod auth;
 pub mod friends;
 pub mod games;
 pub mod health;
+pub mod matchmaking;
 pub mod notifications;
 pub mod users;
 pub mod ws;
@@ -19,6 +20,7 @@ pub fn all_routes() -> Router<AppState> {
         .nest("/users",         user_routes())
         .nest("/friends",       friend_routes())
         .nest("/games",         game_routes())
+        .nest("/matchmaking",   matchmaking_routes())
         .nest("/notifications", notification_routes())
         .nest("/ws",            ws_routes())
 }
@@ -76,9 +78,18 @@ fn game_routes() -> Router<AppState> {
             .unwrap(),
     );
     Router::new()
-        .route("/",    post(games::create))
-        .route("/:id", get(games::get_by_id).delete(games::cancel))
+        .route("/",               post(games::create))
+        .route("/:id",            get(games::get_by_id).delete(games::cancel))
+        .route("/:id/accept",     post(games::accept))
+        .route("/:id/decline",    post(games::decline))
         .layer(GovernorLayer { config: conf })
+}
+
+fn matchmaking_routes() -> Router<AppState> {
+    Router::new()
+        .route("/join",   post(matchmaking::join))
+        .route("/queue",  delete(matchmaking::leave))
+        .route("/status", get(matchmaking::status))
 }
 
 fn notification_routes() -> Router<AppState> {

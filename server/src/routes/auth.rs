@@ -14,6 +14,10 @@ use crate::{
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+fn dicebear_url(seed: &str) -> String {
+    format!("https://api.dicebear.com/9.x/avataaars/svg?seed={seed}&backgroundColor=b6e3f4,c0aede,d1d4f9")
+}
+
 fn generate_token() -> (String, String) {
     let token = Alphanumeric.sample_string(&mut rand::thread_rng(), 64);
     let hash  = hex::encode(Sha256::digest(token.as_bytes()));
@@ -75,11 +79,13 @@ pub async fn guest(
         return Err(AppError::Conflict("username already taken".into()));
     }
 
+    let avatar = dicebear_url(&body.username);
     let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (username, display_name, is_guest)
-         VALUES ($1, $1, TRUE) RETURNING *",
+        "INSERT INTO users (username, display_name, avatar_url, is_guest)
+         VALUES ($1, $1, $2, TRUE) RETURNING *",
     )
     .bind(&body.username)
+    .bind(avatar)
     .fetch_one(&state.db)
     .await?;
 
@@ -107,13 +113,15 @@ pub async fn register(
 
     let password_hash = hash_password(&body.password).map_err(AppError::Internal)?;
 
+    let avatar = dicebear_url(&body.username);
     let user = sqlx::query_as::<_, User>(
-        "INSERT INTO users (username, display_name, email, password_hash, is_guest)
-         VALUES ($1, $1, $2, $3, FALSE) RETURNING *",
+        "INSERT INTO users (username, display_name, email, password_hash, avatar_url, is_guest)
+         VALUES ($1, $1, $2, $3, $4, FALSE) RETURNING *",
     )
     .bind(&body.username)
     .bind(body.email.to_lowercase())
     .bind(password_hash)
+    .bind(avatar)
     .fetch_one(&state.db)
     .await
     .map_err(|e| {

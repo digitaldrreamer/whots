@@ -277,6 +277,117 @@ pub async fn get_by_id(
     }))
 }
 
+// ── POST /games/:id/accept ────────────────────────────────────────────────────
+
+pub async fn accept(
+    AuthUser(claims): AuthUser,
+    State(app): State<AppState>,
+    Path(game_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let rows_updated = sqlx::query(
+        "UPDATE game_seats SET accepted_at = NOW()
+         WHERE game_id = $1 AND user_id = $2 AND is_ai = FALSE AND accepted_at IS NULL",
+    )
+    .bind(game_id)
+    .bind(claims.sub)
+    .execute(&app.db)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?
+    .rows_affected();
+
+    if rows_updated == 0 {
+        return Err(AppError::NotFound(
+            "no pending invite for you in this game".into(),
+        ));
+    }
+
+    let creator_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT created_by FROM games WHERE id = $1")
+            .bind(game_id)
+            .fetch_optional(&app.db)
+            .await?;
+
+    if let Some(cid) = creator_id {
+        if cid != claims.sub {
+            notification_store::push(
+                &app.db,
+                &app.notify_txs,
+                cid,
+                "game_accepted",
+                serde_json::json!({
+                    "game_id": game_id,
+                    "from_username": claims.username
+                }),
+            )
+            .await;
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "game_id": game_id })))
+}
+
+// ── POST /games/:id/decline ───────────────────────────────────────────────────
+
+pub async fn decline(
+    AuthUser(claims): AuthUser,
+    State(app): State<AppState>,
+    Path(game_id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    let is_seat: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM game_seats WHERE game_id = $1 AND user_id = $2 AND is_ai = FALSE)",
+    )
+    .bind(game_id)
+    .bind(claims.sub)
+    .fetch_one(&app.db)
+    .await?;
+
+    if !is_seat {
+        return Err(AppError::Forbidden);
+    }
+
+    let updated = sqlx::query_scalar::<_, Uuid>(
+        "UPDATE games SET status = 'abandoned'
+         WHERE id = $1 AND status IN ('playing', 'waiting')
+         RETURNING id",
+    )
+    .bind(game_id)
+    .fetch_optional(&app.db)
+    .await?;
+
+    if updated.is_none() {
+        return Err(AppError::NotFound("game not found or already finished".into()));
+    }
+
+    app.rooms.remove(&game_id);
+    if let Ok(mut conn) = app.redis.get_multiplexed_tokio_connection().await {
+        let _ = game_store::delete(&mut conn, game_id).await;
+    }
+
+    let creator_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT created_by FROM games WHERE id = $1")
+            .bind(game_id)
+            .fetch_optional(&app.db)
+            .await?;
+
+    if let Some(cid) = creator_id {
+        if cid != claims.sub {
+            notification_store::push(
+                &app.db,
+                &app.notify_txs,
+                cid,
+                "game_declined",
+                serde_json::json!({
+                    "game_id": game_id,
+                    "from_username": claims.username
+                }),
+            )
+            .await;
+        }
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // ── GameMode helper ────────────────────────────────────────────────────────────
 
 impl GameMode {
