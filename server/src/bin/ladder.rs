@@ -198,6 +198,49 @@ fn matrix(n: usize) {
     println!("\nGlobal ordering: {}/{} = {:.1}%   ({:.1}s)", ok, total, ok as f64 / total as f64 * 100.0, start.elapsed().as_secs_f64());
 }
 
+/// Measure how many ISMCTS iterations the VPS completes in 200ms.
+/// Runs `runs` timed calls of 10,000 iterations each, reports averages.
+fn bench(runs: usize) {
+    use std::time::Instant;
+    let mut rng = StdRng::seed_from_u64(0xBEEFCAFE);
+    let state = whots_server::game::engine::create_game(
+        vec![seat(Difficulty::TeeNoble), seat(Difficulty::Pikin)],
+        whots_server::game::types::GameMode::Stack,
+    );
+    const ITERS: u32 = 10_000;
+    let policy = Policy::Ismcts {
+        budget: Budget::Iterations(ITERS),
+        temperature: 0.0,
+        exploration: 1.4,
+        rollout: strong_rollout_params(),
+        endgame_samples: 0,
+    };
+
+    println!("Timing {ITERS} ISMCTS iterations × {runs} runs on this hardware...\n");
+    let mut times_ms = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        let t = Instant::now();
+        let _ = act(&state, 0, &policy, &mut rng);
+        times_ms.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    times_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mean = times_ms.iter().sum::<f64>() / runs as f64;
+    let median = times_ms[runs / 2];
+    let p95 = times_ms[(runs as f64 * 0.95) as usize];
+
+    let iters_in_200ms = (200.0 / mean * ITERS as f64) as u64;
+    println!("  mean:   {mean:.1}ms per {ITERS} iters");
+    println!("  median: {median:.1}ms");
+    println!("  p95:    {p95:.1}ms");
+    println!();
+    println!("=> ~{iters_in_200ms} iterations fit in 200ms");
+    println!("=> calibrated at 2048 iters; production is {:.1}× that",
+        iters_in_200ms as f64 / 2048.0);
+    if iters_in_200ms < 2048 {
+        println!("WARNING: production is WEAKER than calibration — consider reducing TEE_NOBLE_CAL_ITERS or increasing TEE_NOBLE_PROD_MS");
+    }
+}
+
 fn curve(n: usize) {
     // Win rate of each level vs pikin (the floor) — shows the usable Elo span.
     println!("Strength vs pikin (floor), {} games each:\n", n);
@@ -238,6 +281,10 @@ fn main() {
             let n = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(2000);
             let r = win_rate(hi, lo, n);
             println!("{} vs {}: {:.1}%  (Elo {:+.0})  over {} games", name(hi), name(lo), r * 100.0, elo(r), n);
+        }
+        "bench" => {
+            let n = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(20);
+            bench(n);
         }
         _ => eprintln!("unknown command: {cmd}"),
     }
