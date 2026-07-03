@@ -1,12 +1,17 @@
 <script lang="ts">
 	import type { Card as CardT } from '$lib/game/types.js';
+	import { scale } from 'svelte/transition';
+	import { backOut } from 'svelte/easing';
 	import { game } from './game.svelte.js';
 	import { SHAPE_COLORS, SHAPE_LABELS } from './theme.js';
+	import { initSound, isMuted, setMuted } from './sound.js';
 	import Card from './Card.svelte';
 	import Shape from './Shape.svelte';
 	import Hand from './Hand.svelte';
 	import OpponentSeat from './OpponentSeat.svelte';
 	import ShapePicker from './ShapePicker.svelte';
+	import Announce from './Announce.svelte';
+	import Confetti from './Confetti.svelte';
 
 	const gs = $derived(game.state);
 	const opponents = $derived(gs ? gs.players.slice(1) : []);
@@ -38,10 +43,34 @@
 	}
 
 	let showLog = $state(false);
+	let muted = $state(false);
+
+	$effect(() => {
+		initSound();
+		muted = isMuted();
+	});
+
+	function toggleMute() {
+		muted = !muted;
+		setMuted(muted);
+	}
+
+	// Screen shake: bump a local counter whenever the controller signals a hit.
+	let shaking = $state(false);
+	let lastShake = 0;
+	$effect(() => {
+		if (game.shakeId !== lastShake) {
+			lastShake = game.shakeId;
+			if (game.shakeId > 0) {
+				shaking = true;
+				setTimeout(() => (shaking = false), 420);
+			}
+		}
+	});
 </script>
 
 {#if gs}
-	<div class="board">
+	<div class="board" class:shaking>
 		<header class="topbar">
 			<button class="ghost" onclick={() => game.toMenu()}>← Leave</button>
 			<div class="mode-chip">
@@ -49,9 +78,20 @@
 				{#if !game.isTeeGame}<span class="diff">{game.difficultyLabel}</span>{/if}
 				{#if game.isTeeGame}<span class="diff boss">Tee-Noble</span>{/if}
 			</div>
-			<button class="ghost" onclick={() => (showLog = !showLog)}>
-				{showLog ? 'Hide' : 'Log'}
-			</button>
+			<div class="topbar-right">
+				<button
+					class="ghost icon"
+					onclick={toggleMute}
+					aria-pressed={muted}
+					aria-label={muted ? 'Unmute sound' : 'Mute sound'}
+					title={muted ? 'Unmute' : 'Mute'}
+				>
+					{muted ? '🔇' : '🔊'}
+				</button>
+				<button class="ghost" onclick={() => (showLog = !showLog)}>
+					{showLog ? 'Hide' : 'Log'}
+				</button>
+			</div>
 		</header>
 
 		<section class="opponents">
@@ -80,7 +120,14 @@
 			<div class="pile discard">
 				{#if topAsCard}
 					<div class="top-wrap">
-						<Card card={topAsCard} size="lg" />
+						{#key gs.discardPile.length}
+							<div
+								class="slam"
+								in:scale={{ start: 1.35, opacity: 0.4, duration: 220, easing: backOut }}
+							>
+								<Card card={topAsCard} size="lg" />
+							</div>
+						{/key}
 						{#if calledShape}
 							<div class="called" style:--c={SHAPE_COLORS[calledShape]}>
 								<Shape shape={calledShape} size={16} color={SHAPE_COLORS[calledShape]} />
@@ -125,6 +172,9 @@
 	{#if game.awaitingShape}
 		<ShapePicker onpick={(s) => game.chooseShape(s)} oncancel={() => game.cancelWhot()} />
 	{/if}
+
+	<Announce data={game.announce} />
+	<Confetti trigger={game.winBurst} />
 {/if}
 
 <style>
@@ -137,11 +187,42 @@
 		margin: 0 auto;
 		padding: 0.75rem 1rem 1rem;
 	}
+	.board.shaking {
+		animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+	}
+	@keyframes shake {
+		10%,
+		90% {
+			transform: translateX(-2px);
+		}
+		20%,
+		80% {
+			transform: translateX(4px);
+		}
+		30%,
+		50%,
+		70% {
+			transform: translateX(-8px);
+		}
+		40%,
+		60% {
+			transform: translateX(8px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.board.shaking {
+			animation: none;
+		}
+	}
 	.topbar {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
+	}
+	.topbar-right {
+		display: flex;
+		gap: 0.4rem;
 	}
 	.ghost {
 		background: rgba(255, 255, 255, 0.06);
@@ -152,8 +233,16 @@
 		cursor: pointer;
 		font-size: 0.85rem;
 	}
+	.ghost.icon {
+		padding: 0.4rem 0.55rem;
+		font-size: 1rem;
+		line-height: 1;
+	}
 	.ghost:hover {
 		background: rgba(255, 255, 255, 0.12);
+	}
+	.slam {
+		display: inline-block;
 	}
 	.mode-chip {
 		display: flex;

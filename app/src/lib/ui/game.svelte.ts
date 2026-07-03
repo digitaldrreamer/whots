@@ -28,8 +28,12 @@ import type {
 	SuitCard
 } from '$lib/game/types.js';
 import { SHAPE_LABELS } from './theme.js';
+import * as sound from './sound.js';
 
 export type Screen = 'menu' | 'playing' | 'result';
+
+export type AnnounceTone = 'good' | 'bad' | 'wild' | 'skip' | 'market' | 'boss';
+export type AnnounceData = { id: number; text: string; sub?: string; tone: AnnounceTone };
 
 export type GameConfig = {
 	mode: GameMode;
@@ -99,7 +103,15 @@ export class GameController {
 	teeChallenge = $state(false);
 	isTeeGame = $state(false);
 
+	// Gamification feedback
+	announce = $state<AnnounceData | null>(null);
+	shakeId = $state(0);
+	winBurst = $state(0);
+
 	#logId = 0;
+	#annId = 0;
+	#annTimer: ReturnType<typeof setTimeout> | null = null;
+	#handSizes: number[] = [];
 
 	// --- Derived helpers ---
 
@@ -157,6 +169,88 @@ export class GameController {
 		this.log = [...this.log, { id: this.#logId, who, text }].slice(-40);
 	}
 
+	// --- Feedback (banners, shake, sound) ---
+
+	#say(text: string, tone: AnnounceTone, sub?: string) {
+		this.#annId += 1;
+		const id = this.#annId;
+		this.announce = { id, text, tone, sub };
+		if (this.#annTimer) clearTimeout(this.#annTimer);
+		this.#annTimer = setTimeout(() => {
+			if (this.#annId === id) this.announce = null;
+		}, 1500);
+	}
+
+	#shake() {
+		this.shakeId += 1;
+	}
+
+	// Called after a card is played — fires the matching callout + sound.
+	#playFeedback(byIndex: number, action: PlayAction) {
+		const s = this.state;
+		if (!s) return;
+		const players = s.players;
+		const byHuman = byIndex === HUMAN;
+		const nextIdx = (byIndex + 1) % players.length;
+		const nextIsHuman = nextIdx === HUMAN;
+		const nextName = players[nextIdx]?.name ?? 'next';
+
+		if (action.kind === 'whot') {
+			this.#say('WHOT!', 'wild', `called ${SHAPE_LABELS[action.calledShape]}`);
+			sound.play('whot');
+			return;
+		}
+
+		const effect = getSuitCardEffect(action.card);
+		switch (effect?.kind) {
+			case 'hold_on':
+				this.#say('HOLD ON', 'good', byHuman ? 'go again' : `${players[byIndex]?.name} goes again`);
+				sound.play('holdon');
+				break;
+			case 'pick_two':
+				this.#say('PICK TWO', nextIsHuman && !byHuman ? 'bad' : 'good', `→ ${nextName}`);
+				if (nextIsHuman && !byHuman) {
+					sound.play('youhit');
+					this.#shake();
+				} else sound.play('pick2');
+				break;
+			case 'pick_three':
+				this.#say('PICK THREE', nextIsHuman && !byHuman ? 'bad' : 'good', `→ ${nextName}`);
+				if (nextIsHuman && !byHuman) {
+					sound.play('youhit');
+					this.#shake();
+				} else sound.play('pick3');
+				break;
+			case 'suspension':
+				this.#say('SUSPENDED', 'skip', `${nextName} skips`);
+				sound.play('skip');
+				if (nextIsHuman && !byHuman) this.#shake();
+				break;
+			case 'general_market':
+				this.#say('GENERAL MARKET', 'market', 'everyone draws');
+				sound.play('market');
+				if (!byHuman) this.#shake();
+				break;
+			default:
+				sound.play('play');
+		}
+	}
+
+	// Announce when any player drops to their last card (once per transition).
+	#checkLastCard() {
+		const s = this.state;
+		if (!s || s.phase !== 'playing') return;
+		s.players.forEach((p, i) => {
+			const prev = this.#handSizes[i] ?? 5;
+			if (p.hand.length === 1 && prev !== 1) {
+				const isYou = i === HUMAN;
+				this.#say('LAST CARD', isYou ? 'good' : 'bad', isYou ? 'one to go!' : `${p.name} is on 1`);
+				sound.play('lastcard');
+			}
+		});
+		this.#handSizes = s.players.map((p) => p.hand.length);
+	}
+
 	#buildPlayers(kind: 'normal' | 'tee'): Player[] {
 		const human: Player = {
 			id: createPlayerId('human'),
@@ -194,9 +288,12 @@ export class GameController {
 		this.teeChallenge = false;
 		const players = this.#buildPlayers(kind);
 		this.state = createGame(players, this.config.mode);
+		this.#handSizes = this.state.players.map((p) => p.hand.length);
+		this.announce = null;
 		this.screen = 'playing';
 		if (kind === 'tee') {
 			this.#pushLog('system', 'Tee-Noble takes a seat across the table. No mercy.');
+			this.#say('TEE-NOBLE', 'boss', 'no mercy');
 		} else {
 			const diff = DIFFICULTY_LABELS[this.config.difficulty];
 			this.#pushLog('system', `New game — ${this.config.mode} mode vs ${diff}. You start.`);
@@ -248,8 +345,11 @@ export class GameController {
 		const drew = after - before;
 		if (pick > 0) {
 			this.#pushLog('you', `You went to market and picked ${drew} card${drew === 1 ? '' : 's'}.`);
+			sound.play('youhit');
+			this.#shake();
 		} else {
 			this.#pushLog('you', `You went to market (drew ${drew}).`);
+			sound.play('draw');
 		}
 		this.#afterMove();
 	}
@@ -270,6 +370,7 @@ export class GameController {
 			if (note) text += ` — ${note}`;
 		}
 		this.#pushLog('you', text + '.');
+		this.#playFeedback(HUMAN, action);
 		this.#afterMove();
 	}
 
@@ -278,6 +379,7 @@ export class GameController {
 	#afterMove() {
 		const s = this.state;
 		if (!s) return;
+		this.#checkLastCard();
 		if (s.phase === 'finished') {
 			this.#endGame();
 			return;
@@ -325,6 +427,7 @@ export class GameController {
 							? `${player.name} picked ${drew} card${drew === 1 ? '' : 's'}.`
 							: `${player.name} went to market.`
 					);
+					sound.play('draw');
 				} else if (move.kind === 'suit') {
 					this.state = playCard(s, idx, move);
 					const note = effectNote(move.card);
@@ -332,13 +435,16 @@ export class GameController {
 						'them',
 						`${player.name} played ${cardName(move.card)}${note ? ` — ${note}` : ''}.`
 					);
+					this.#playFeedback(idx, move);
 				} else {
 					this.state = playCard(s, idx, move);
 					this.#pushLog(
 						'them',
 						`${player.name} played Whot — called ${SHAPE_LABELS[move.calledShape]}.`
 					);
+					this.#playFeedback(idx, move);
 				}
+				this.#checkLastCard();
 			} catch {
 				// Engine rejected the AI move (shouldn't happen) — fall back to a draw
 				// to keep the game from deadlocking.
@@ -363,6 +469,13 @@ export class GameController {
 			'system',
 			won ? 'You emptied your hand — you win! 🎉' : `${s?.winner?.name ?? 'Opponent'} wins.`
 		);
+		this.announce = null;
+		if (won) {
+			sound.play('win');
+			this.winBurst += 1;
+		} else {
+			sound.play('lose');
+		}
 
 		if (this.isTeeGame) {
 			this.tee = resolveChallenge(this.tee, won ? 'won' : 'lost');
