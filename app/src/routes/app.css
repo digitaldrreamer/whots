@@ -1,6 +1,9 @@
 :root {
 	--gold: #e8b84b;
 	--card-face: #fbf7ec;
+	/* Shared motion curves so every lift/pop shares the same character. */
+	--spring: cubic-bezier(0.34, 1.5, 0.5, 1);
+	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 	color-scheme: dark;
 }
 
@@ -39,4 +42,15 @@ button {
 :focus-visible {
 	outline: 2px solid var(--gold);
 	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
 }

@@ -226,8 +226,8 @@
 		font-weight: 800;
 		cursor: pointer;
 		transition:
-			transform 0.1s,
-			filter 0.15s;
+			transform 0.24s var(--spring),
+			filter 0.15s ease;
 	}
 	.play:hover {
 		filter: brightness(1.06);

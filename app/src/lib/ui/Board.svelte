@@ -213,7 +213,7 @@
 		padding: 0;
 		border-radius: 9px;
 		cursor: pointer;
-		transition: transform 0.14s;
+		transition: transform 0.28s var(--spring);
 	}
 	.stock-btn:not(:disabled):hover {
 		transform: translateY(-6px);
@@ -280,8 +280,8 @@
 		cursor: pointer;
 		font-size: 0.85rem;
 		transition:
-			transform 0.1s,
-			filter 0.15s;
+			transform 0.24s var(--spring),
+			filter 0.15s ease;
 	}
 	.market-btn:not(:disabled):hover {
 		filter: brightness(1.08);

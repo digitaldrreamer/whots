@@ -75,9 +75,9 @@
 		font-size: 0.85rem;
 		cursor: pointer;
 		transition:
-			border-color 0.15s,
-			background 0.15s,
-			transform 0.1s;
+			border-color 0.15s ease,
+			background 0.15s ease,
+			transform 0.24s var(--spring);
 	}
 	.opt:hover {
 		border-color: var(--c);

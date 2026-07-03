@@ -146,8 +146,8 @@
 		font-size: 1rem;
 		cursor: pointer;
 		transition:
-			transform 0.1s,
-			filter 0.15s;
+			transform 0.24s var(--spring),
+			filter 0.15s ease;
 	}
 	button:hover {
 		transform: translateY(-2px);
