@@ -57,7 +57,7 @@ async fn register_and_login(pool: PgPool) {
         &app,
         "POST",
         "/api/auth/login",
-        Some(json!({ "username": "alice", "password": "Password1!" })),
+        Some(json!({ "identifier": "alice", "password": "Password1!" })),
         None,
     )
     .await;
@@ -74,7 +74,7 @@ async fn login_wrong_password(pool: PgPool) {
         &app,
         "POST",
         "/api/auth/login",
-        Some(json!({ "username": "bob", "password": "Wrong!" })),
+        Some(json!({ "identifier": "bob", "password": "Wrong!" })),
         None,
     )
     .await;
