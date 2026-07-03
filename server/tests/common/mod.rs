@@ -1,6 +1,7 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{body::Body, http::Request, response::Response, Router};
+use axum::{body::Body, extract::ConnectInfo, http::Request, response::Response, Router};
 use dashmap::DashMap;
 use http_body_util::BodyExt;
 use serde_json::Value;
@@ -63,11 +64,15 @@ pub async fn req(
         None => Body::empty(),
     };
 
-    let response: Response = app
-        .clone()
-        .oneshot(builder.body(body).unwrap())
-        .await
-        .unwrap();
+    let mut request = builder.body(body).unwrap();
+    // The rate-limiter's PeerIpKeyExtractor needs ConnectInfo, which the plain
+    // oneshot harness doesn't populate. Inject a loopback address so it can
+    // extract a key instead of erroring with 500.
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+
+    let response: Response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);

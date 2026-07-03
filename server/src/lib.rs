@@ -96,7 +96,13 @@ pub async fn run() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     tracing::info!("listening on port {port}");
 
-    axum::serve(listener, app).await?;
+    // ConnectInfo must be populated so the rate limiter's PeerIpKeyExtractor can
+    // read the client IP — without it every rate-limited route 500s.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
