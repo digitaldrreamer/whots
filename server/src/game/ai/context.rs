@@ -1,17 +1,22 @@
-use std::collections::HashMap;
+use super::types::{Candidate, ModuleContext};
 use crate::game::{
     engine::CARDS_PER_SHAPE,
     moves::valid_moves,
     types::{Card, GameState, Shape, SHAPES},
 };
-use super::types::{Candidate, ModuleContext};
+use std::collections::HashMap;
 
 pub fn build_candidates(state: &GameState, seat_index: usize) -> Vec<Candidate> {
     let Some(seat) = state.seats.get(seat_index) else {
         return vec![Candidate::Draw];
     };
 
-    let valid = valid_moves(&seat.hand, state.top_card, &state.pending_effect, state.mode);
+    let valid = valid_moves(
+        &seat.hand,
+        state.top_card,
+        &state.pending_effect,
+        state.mode,
+    );
     if valid.is_empty() {
         return vec![Candidate::Draw];
     }
@@ -24,7 +29,9 @@ pub fn build_candidates(state: &GameState, seat_index: usize) -> Vec<Candidate> 
             Card::Suit { shape, value } => candidates.push(Candidate::PlaySuit { shape, value }),
             Card::Whot if !whot_expanded => {
                 for shape in SHAPES {
-                    candidates.push(Candidate::PlayWhot { called_shape: shape });
+                    candidates.push(Candidate::PlayWhot {
+                        called_shape: shape,
+                    });
                 }
                 whot_expanded = true;
             }
@@ -67,7 +74,13 @@ pub fn build_context<'a>(
         .seats
         .iter()
         .enumerate()
-        .map(|(i, s)| if i == seat_index { -1 } else { s.hand.len() as i32 })
+        .map(|(i, s)| {
+            if i == seat_index {
+                -1
+            } else {
+                s.hand.len() as i32
+            }
+        })
         .collect();
 
     ModuleContext {

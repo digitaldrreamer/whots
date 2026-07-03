@@ -4,7 +4,10 @@ pub fn can_play(card: Card, top: TopCard, pending: &Option<PendingEffect>, mode:
     // In stack mode with a pending pick, only 2s and 5s can counter
     if let Some(PendingEffect::Pick { .. }) = pending {
         if mode == GameMode::Stack {
-            return matches!(card, Card::Suit { value: 2, .. } | Card::Suit { value: 5, .. });
+            return matches!(
+                card,
+                Card::Suit { value: 2, .. } | Card::Suit { value: 5, .. }
+            );
         }
     }
 
@@ -13,11 +16,20 @@ pub fn can_play(card: Card, top: TopCard, pending: &Option<PendingEffect>, mode:
         return true;
     }
 
-    let Card::Suit { shape: cs, value: cv } = card else { return false };
+    let Card::Suit {
+        shape: cs,
+        value: cv,
+    } = card
+    else {
+        return false;
+    };
 
     match top {
         TopCard::Whot { called_shape } => cs == called_shape,
-        TopCard::Suit { shape: ts, value: tv } => cs == ts || cv == tv,
+        TopCard::Suit {
+            shape: ts,
+            value: tv,
+        } => cs == ts || cv == tv,
     }
 }
 
@@ -27,5 +39,8 @@ pub fn valid_moves(
     pending: &Option<PendingEffect>,
     mode: GameMode,
 ) -> Vec<Card> {
-    hand.iter().copied().filter(|&c| can_play(c, top, pending, mode)).collect()
+    hand.iter()
+        .copied()
+        .filter(|&c| can_play(c, top, pending, mode))
+        .collect()
 }

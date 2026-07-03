@@ -53,7 +53,7 @@ async fn create_and_get_game(pool: PgPool) {
 async fn create_game_requires_self_as_seat(pool: PgPool) {
     let app = make_app(pool);
     let (token_a, _) = register_user(&app, "alpha", "Password1!").await;
-    let (_, _)       = register_user(&app, "beta",  "Password1!").await;
+    let (_, _) = register_user(&app, "beta", "Password1!").await;
     let beta_id = {
         // get beta's id by searching
         let (_, body) = req(&app, "GET", "/api/users/beta", None, Some(&token_a)).await;

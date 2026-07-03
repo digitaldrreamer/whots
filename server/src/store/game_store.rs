@@ -12,7 +12,8 @@ fn key(game_id: Uuid) -> String {
 
 pub async fn save(conn: &mut redis::aio::MultiplexedConnection, state: &GameState) -> Result<()> {
     let json = serde_json::to_string(state)?;
-    conn.set_ex::<_, _, ()>(key(state.id), json, TTL_SECS).await?;
+    conn.set_ex::<_, _, ()>(key(state.id), json, TTL_SECS)
+        .await?;
     Ok(())
 }
 

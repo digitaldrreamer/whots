@@ -66,7 +66,11 @@ async fn search_users(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.as_array().unwrap().iter().any(|u| u["username"] == "searchme"));
+    assert!(body
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|u| u["username"] == "searchme"));
 }
 
 #[sqlx::test]

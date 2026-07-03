@@ -7,28 +7,23 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-use whots_server::{
-    config::Config,
-    make_router,
-    state::AppState,
-};
+use whots_server::{config::Config, make_router, state::AppState};
 
 pub fn test_config() -> Config {
     Config {
-        database_url:              std::env::var("DATABASE_URL").unwrap_or_default(),
-        jwt_secret:                "test-secret-must-be-32-chars-or-more!!".into(),
+        database_url: std::env::var("DATABASE_URL").unwrap_or_default(),
+        jwt_secret: "test-secret-must-be-32-chars-or-more!!".into(),
         jwt_access_expiry_seconds: 900,
-        jwt_refresh_expiry_days:   30,
-        port:                      3001,
-        frontend_url:              "http://localhost:5173".into(),
-        redis_url:                 std::env::var("REDIS_URL")
-                                       .unwrap_or_else(|_| "redis://127.0.0.1/".into()),
-        app_url:                   "http://localhost:5173".into(),
-        smtp_host:                 None,
-        smtp_port:                 None,
-        smtp_user:                 None,
-        smtp_password:             None,
-        smtp_from:                 None,
+        jwt_refresh_expiry_days: 30,
+        port: 3001,
+        frontend_url: "http://localhost:5173".into(),
+        redis_url: std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1/".into()),
+        app_url: "http://localhost:5173".into(),
+        smtp_host: None,
+        smtp_port: None,
+        smtp_user: None,
+        smtp_password: None,
+        smtp_from: None,
     }
 }
 
@@ -37,10 +32,10 @@ pub fn make_app(pool: PgPool) -> Router {
     let redis_url = config.redis_url.clone();
     let redis = redis::Client::open(redis_url.as_str()).expect("Redis client");
     let state = AppState {
-        db:         pool,
-        config:     Arc::new(config),
+        db: pool,
+        config: Arc::new(config),
         redis,
-        rooms:      Arc::new(DashMap::new()),
+        rooms: Arc::new(DashMap::new()),
         notify_txs: Arc::new(DashMap::new()),
     };
     let origin = "http://localhost:5173".parse().unwrap();
@@ -68,20 +63,20 @@ pub async fn req(
         None => Body::empty(),
     };
 
-    let response: Response = app.clone().oneshot(builder.body(body).unwrap()).await.unwrap();
-    let status              = response.status();
-    let bytes               = response.into_body().collect().await.unwrap().to_bytes();
+    let response: Response = app
+        .clone()
+        .oneshot(builder.body(body).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
 
     (status, json)
 }
 
 /// Register a user and return (access_token, refresh_token).
-pub async fn register_user(
-    app: &Router,
-    username: &str,
-    password: &str,
-) -> (String, String) {
+pub async fn register_user(app: &Router, username: &str, password: &str) -> (String, String) {
     let (status, body) = req(
         app,
         "POST",
@@ -95,7 +90,11 @@ pub async fn register_user(
         None,
     )
     .await;
-    assert_eq!(status, axum::http::StatusCode::CREATED, "register failed: {body}");
+    assert_eq!(
+        status,
+        axum::http::StatusCode::CREATED,
+        "register failed: {body}"
+    );
     (
         body["access_token"].as_str().unwrap().to_owned(),
         body["refresh_token"].as_str().unwrap().to_owned(),
@@ -113,6 +112,10 @@ pub async fn guest_token(app: &Router, username: &str) -> String {
         None,
     )
     .await;
-    assert_eq!(status, axum::http::StatusCode::CREATED, "guest failed: {body}");
+    assert_eq!(
+        status,
+        axum::http::StatusCode::CREATED,
+        "guest failed: {body}"
+    );
     body["access_token"].as_str().unwrap().to_owned()
 }

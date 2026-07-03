@@ -4,11 +4,17 @@ const THREAT_THRESHOLD: i32 = 3;
 
 /// When the next player is close to winning, prefer hindering action cards.
 pub fn threat_detection(candidate: &Candidate, ctx: &ModuleContext<'_>) -> f64 {
-    let Candidate::PlaySuit { value, .. } = candidate else { return 0.0 };
+    let Candidate::PlaySuit { value, .. } = candidate else {
+        return 0.0;
+    };
 
     let n = ctx.state.seats.len();
     let next_idx = (ctx.seat_index + 1) % n;
-    let next_size = ctx.opponent_hand_sizes.get(next_idx).copied().unwrap_or(i32::MAX);
+    let next_size = ctx
+        .opponent_hand_sizes
+        .get(next_idx)
+        .copied()
+        .unwrap_or(i32::MAX);
     let min_opp = ctx
         .opponent_hand_sizes
         .iter()

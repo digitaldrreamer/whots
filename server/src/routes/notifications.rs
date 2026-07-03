@@ -13,12 +13,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::{
-    auth::AuthUser,
-    error::AppError,
-    models::notification::Notification,
-    state::AppState,
-};
+use crate::{auth::AuthUser, error::AppError, models::notification::Notification, state::AppState};
 
 // ── GET /notifications ─────────────────────────────────────────────────────────
 

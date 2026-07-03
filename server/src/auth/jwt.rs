@@ -8,21 +8,21 @@ use crate::{config::Config, models::User};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub:      Uuid,    // user id
+    pub sub: Uuid, // user id
     pub username: String,
     pub is_guest: bool,
-    pub exp:      i64,     // unix timestamp
-    pub iat:      i64,
+    pub exp: i64, // unix timestamp
+    pub iat: i64,
 }
 
 pub fn encode_access_token(user: &User, config: &Config) -> Result<String> {
     let now = Utc::now().timestamp();
     let claims = Claims {
-        sub:      user.id,
+        sub: user.id,
         username: user.username.clone(),
         is_guest: user.is_guest,
-        iat:      now,
-        exp:      now + config.jwt_access_expiry_seconds,
+        iat: now,
+        exp: now + config.jwt_access_expiry_seconds,
     };
     encode(
         &Header::default(),

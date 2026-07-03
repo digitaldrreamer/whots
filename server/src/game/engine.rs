@@ -5,7 +5,10 @@ use crate::game::{
     deck::shuffled_deck,
     effects::{suit_card_effect, ActionEffect},
     moves::{can_play, valid_moves},
-    types::{Action, Card, GameMode, GamePhase, GameState, GameStateView, PendingEffect, Seat, SeatKind, SeatView, Shape, TopCard, SUIT_VALUES},
+    types::{
+        Action, Card, GameMode, GamePhase, GameState, GameStateView, PendingEffect, Seat, SeatKind,
+        SeatView, Shape, TopCard, SUIT_VALUES,
+    },
 };
 
 const INITIAL_HAND_SIZE: usize = 5;
@@ -52,17 +55,25 @@ fn compute_pending(
     match effect {
         None => current,
         Some(ActionEffect::PickTwo) => {
-            let base = if let Some(PendingEffect::Pick { total }) = current { total } else { 0 };
+            let base = if let Some(PendingEffect::Pick { total }) = current {
+                total
+            } else {
+                0
+            };
             Some(PendingEffect::Pick { total: base + 2 })
         }
         Some(ActionEffect::PickThree) => {
-            let base = if let Some(PendingEffect::Pick { total }) = current { total } else { 0 };
+            let base = if let Some(PendingEffect::Pick { total }) = current {
+                total
+            } else {
+                0
+            };
             Some(PendingEffect::Pick { total: base + 3 })
         }
         Some(ActionEffect::HoldOn) => Some(PendingEffect::Skip),
-        Some(ActionEffect::Suspension | ActionEffect::GeneralMarket | ActionEffect::Whot { .. }) => {
-            None
-        }
+        Some(
+            ActionEffect::Suspension | ActionEffect::GeneralMarket | ActionEffect::Whot { .. },
+        ) => None,
     }
 }
 
@@ -200,7 +211,12 @@ fn apply_whot_card(
         .position(|c| matches!(c, Card::Whot))
         .ok_or(GameError::CardNotInHand)?;
 
-    if !can_play(Card::Whot, state.top_card, &state.pending_effect, state.mode) {
+    if !can_play(
+        Card::Whot,
+        state.top_card,
+        &state.pending_effect,
+        state.mode,
+    ) {
         return Err(GameError::InvalidMove);
     }
 
@@ -284,31 +300,36 @@ pub fn apply_action(
 /// all other seats have an empty hand with only hand_size reflecting truth.
 pub fn make_view(state: &GameState, viewer_user_id: Option<Uuid>) -> GameStateView {
     let viewer_seat = viewer_user_id.and_then(|uid| {
-        state.seats.iter().position(|s| {
-            matches!(&s.kind, SeatKind::Human { user_id } if *user_id == uid)
-        })
+        state
+            .seats
+            .iter()
+            .position(|s| matches!(&s.kind, SeatKind::Human { user_id } if *user_id == uid))
     });
 
     GameStateView {
-        id:   state.id,
+        id: state.id,
         mode: state.mode,
         seats: state
             .seats
             .iter()
             .enumerate()
             .map(|(i, seat)| SeatView {
-                name:      seat.name.clone(),
-                kind:      seat.kind.clone(),
-                hand:      if Some(i) == viewer_seat { seat.hand.clone() } else { vec![] },
+                name: seat.name.clone(),
+                kind: seat.kind.clone(),
+                hand: if Some(i) == viewer_seat {
+                    seat.hand.clone()
+                } else {
+                    vec![]
+                },
                 hand_size: seat.hand.len(),
             })
             .collect(),
-        stock_size:         state.stock_pile.len(),
-        discard_top:        state.top_card,
+        stock_size: state.stock_pile.len(),
+        discard_top: state.top_card,
         current_seat_index: state.current_seat_index,
-        phase:              state.phase,
-        pending_effect:     state.pending_effect.clone(),
-        winner_index:       state.winner_index,
+        phase: state.phase,
+        pending_effect: state.pending_effect.clone(),
+        winner_index: state.winner_index,
     }
 }
 

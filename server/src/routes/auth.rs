@@ -20,34 +20,35 @@ fn dicebear_url(seed: &str) -> String {
 
 fn generate_token() -> (String, String) {
     let token = Alphanumeric.sample_string(&mut rand::thread_rng(), 64);
-    let hash  = hex::encode(Sha256::digest(token.as_bytes()));
+    let hash = hex::encode(Sha256::digest(token.as_bytes()));
     (token, hash)
 }
 
 #[derive(Serialize)]
 pub struct AuthResponse {
-    pub user:          PublicUser,
-    pub access_token:  String,
+    pub user: PublicUser,
+    pub access_token: String,
     pub refresh_token: String,
 }
 
 async fn issue_tokens(user: User, state: &AppState) -> Result<AuthResponse, AppError> {
-    let access_token = encode_access_token(&user, &state.config)
-        .map_err(AppError::Internal)?;
+    let access_token = encode_access_token(&user, &state.config).map_err(AppError::Internal)?;
 
     let (refresh_token, token_hash) = generate_token();
     let expires_at = Utc::now() + Duration::days(state.config.jwt_refresh_expiry_days);
 
-    sqlx::query(
-        "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-    )
-    .bind(user.id)
-    .bind(&token_hash)
-    .bind(expires_at)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)")
+        .bind(user.id)
+        .bind(&token_hash)
+        .bind(expires_at)
+        .execute(&state.db)
+        .await?;
 
-    Ok(AuthResponse { user: user.into(), access_token, refresh_token })
+    Ok(AuthResponse {
+        user: user.into(),
+        access_token,
+        refresh_token,
+    })
 }
 
 // ── POST /auth/guest ───────────────────────────────────────────────────────────
@@ -67,13 +68,13 @@ pub async fn guest(
     State(state): State<AppState>,
     Json(body): Json<GuestRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let taken: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
-            .bind(&body.username)
-            .fetch_one(&state.db)
-            .await?;
+    let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
+        .bind(&body.username)
+        .fetch_one(&state.db)
+        .await?;
 
     if taken {
         return Err(AppError::Conflict("username already taken".into()));
@@ -100,7 +101,7 @@ pub struct RegisterRequest {
     #[validate(length(min = 3, max = 30), regex(path = *USERNAME_REGEX))]
     pub username: String,
     #[validate(email)]
-    pub email:    String,
+    pub email: String,
     #[validate(length(min = 8, max = 128))]
     pub password: String,
 }
@@ -109,7 +110,8 @@ pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let password_hash = hash_password(&body.password).map_err(AppError::Internal)?;
 
@@ -167,7 +169,7 @@ async fn send_verification_for(user: &User, state: &AppState) {
 #[derive(Deserialize)]
 pub struct LoginRequest {
     pub identifier: String,
-    pub password:   String,
+    pub password: String,
 }
 
 pub async fn login(
@@ -185,7 +187,10 @@ pub async fn login(
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    let hash = user.password_hash.as_deref().ok_or(AppError::Unauthorized)?;
+    let hash = user
+        .password_hash
+        .as_deref()
+        .ok_or(AppError::Unauthorized)?;
 
     if !verify_password(&body.password, hash).map_err(AppError::Internal)? {
         return Err(AppError::Unauthorized);
@@ -257,17 +262,17 @@ pub async fn forgot_password(
     State(state): State<AppState>,
     Json(body): Json<ForgotPasswordRequest>,
 ) -> Result<StatusCode, AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let email = body.email.trim().to_lowercase();
 
     // Silently succeed whether or not the email exists (don't leak account existence)
-    if let Some(user) = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE email = $1 AND is_guest = FALSE",
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await?
+    if let Some(user) =
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1 AND is_guest = FALSE")
+            .bind(&email)
+            .fetch_optional(&state.db)
+            .await?
     {
         let (token, hash) = generate_token();
         let expires_at = Utc::now() + Duration::hours(1);
@@ -300,7 +305,7 @@ pub async fn forgot_password(
 
 #[derive(Deserialize, Validate)]
 pub struct ResetPasswordRequest {
-    pub token:        String,
+    pub token: String,
     #[validate(length(min = 8, max = 128))]
     pub new_password: String,
 }
@@ -309,7 +314,8 @@ pub async fn reset_password(
     State(state): State<AppState>,
     Json(body): Json<ResetPasswordRequest>,
 ) -> Result<StatusCode, AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let hash = hex::encode(Sha256::digest(body.token.as_bytes()));
 
@@ -321,7 +327,9 @@ pub async fn reset_password(
     .bind(&hash)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::BadRequest("invalid or expired reset token".into()))?;
+    .ok_or(AppError::BadRequest(
+        "invalid or expired reset token".into(),
+    ))?;
 
     let password_hash = hash_password(&body.new_password).map_err(AppError::Internal)?;
 
@@ -361,7 +369,9 @@ pub async fn verify_email(
     .bind(&hash)
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::BadRequest("invalid or expired verification token".into()))?;
+    .ok_or(AppError::BadRequest(
+        "invalid or expired verification token".into(),
+    ))?;
 
     sqlx::query("UPDATE users SET email_verified = TRUE WHERE id = $1")
         .bind(row.0)

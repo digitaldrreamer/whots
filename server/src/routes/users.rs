@@ -36,7 +36,7 @@ pub async fn me(
 pub struct UpdateMeRequest {
     #[validate(length(min = 1, max = 50))]
     pub display_name: Option<String>,
-    pub avatar_url:   Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 pub async fn update_me(
@@ -44,7 +44,8 @@ pub async fn update_me(
     State(state): State<AppState>,
     Json(body): Json<UpdateMeRequest>,
 ) -> Result<Json<PublicUser>, AppError> {
-    body.validate().map_err(|e| AppError::BadRequest(e.to_string()))?;
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let user = sqlx::query_as::<_, User>(
         "UPDATE users
@@ -75,7 +76,9 @@ pub async fn search(
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<Vec<PublicUser>>, AppError> {
     if params.q.len() < 2 {
-        return Err(AppError::BadRequest("query must be at least 2 characters".into()));
+        return Err(AppError::BadRequest(
+            "query must be at least 2 characters".into(),
+        ));
     }
 
     let users = sqlx::query_as::<_, User>(
@@ -148,13 +151,13 @@ pub struct PageQuery {
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct GameSummary {
-    pub id:           Uuid,
-    pub mode:         String,
-    pub status:       String,
-    pub created_at:   DateTime<Utc>,
-    pub finished_at:  Option<DateTime<Utc>>,
-    pub seat_index:   i32,
-    pub is_winner:    bool,
+    pub id: Uuid,
+    pub mode: String,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub seat_index: i32,
+    pub is_winner: bool,
     pub player_count: i64,
 }
 

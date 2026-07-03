@@ -47,7 +47,11 @@ fn parse(s: &str) -> Option<Difficulty> {
 }
 
 fn seat(d: Difficulty) -> Seat {
-    Seat { name: name(d).into(), kind: SeatKind::Ai { difficulty: d }, hand: vec![] }
+    Seat {
+        name: name(d).into(),
+        kind: SeatKind::Ai { difficulty: d },
+        hand: vec![],
+    }
 }
 
 /// One heads-up game; returns Some(true) if `a` won. `a_first` alternates seats.
@@ -66,7 +70,9 @@ fn play(a: Difficulty, b: Difficulty, a_first: bool, rng: &mut StdRng) -> Option
             let _ = apply_action(&mut state, idx, Action::Draw);
         }
     }
-    state.winner_index.map(|w| if a_first { w == 0 } else { w == 1 })
+    state
+        .winner_index
+        .map(|w| if a_first { w == 0 } else { w == 1 })
 }
 
 /// Win rate of `hi` against `lo` over `n` games (seats alternate).
@@ -81,7 +87,11 @@ fn win_rate(hi: Difficulty, lo: Difficulty, n: usize) -> f64 {
             total += 1;
         }
     }
-    if total == 0 { 0.5 } else { wins as f64 / total as f64 }
+    if total == 0 {
+        0.5
+    } else {
+        wins as f64 / total as f64
+    }
 }
 
 fn elo(p: f64) -> f64 {
@@ -116,7 +126,9 @@ fn play_pol(p0: &Policy, p1: &Policy, a_first: bool, rng: &mut StdRng) -> Option
             let _ = apply_action(&mut state, idx, Action::Draw);
         }
     }
-    state.winner_index.map(|w| if a_first { w == 0 } else { w == 1 })
+    state
+        .winner_index
+        .map(|w| if a_first { w == 0 } else { w == 1 })
 }
 
 fn win_rate_pol(p0: &Policy, p1: &Policy, n: usize, seed: u64) -> f64 {
@@ -130,23 +142,43 @@ fn win_rate_pol(p0: &Policy, p1: &Policy, n: usize, seed: u64) -> f64 {
             total += 1;
         }
     }
-    if total == 0 { 0.5 } else { wins as f64 / total as f64 }
+    if total == 0 {
+        0.5
+    } else {
+        wins as f64 / total as f64
+    }
 }
 
 /// Map raw ISMCTS strength (temp=0) vs a pure-random baseline, and the strength
 /// of a few candidate weak policies — so rungs can be picked from real data.
 fn grid(n: usize) {
     let random = Policy::Random;
-    println!("Strength vs RANDOM baseline, {} games each (temp=0 unless noted):\n", n);
+    println!(
+        "Strength vs RANDOM baseline, {} games each (temp=0 unless noted):\n",
+        n
+    );
     println!("{:>18}  rate    Elo", "policy");
 
-    let greedy = Policy::Heuristic { epsilon: 0.0, params: strong_rollout_params() };
+    let greedy = Policy::Heuristic {
+        epsilon: 0.0,
+        params: strong_rollout_params(),
+    };
     let r = win_rate_pol(&greedy, &random, n, 1);
-    println!("{:>18}  {:>5.1}%  {:+.0}", "greedy-heuristic", r * 100.0, elo(r));
+    println!(
+        "{:>18}  {:>5.1}%  {:+.0}",
+        "greedy-heuristic",
+        r * 100.0,
+        elo(r)
+    );
 
     for &iters in &[2u32, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096] {
         let r = win_rate_pol(&ismcts(iters, 0.0), &random, n, 100 + iters as u64);
-        println!("{:>18}  {:>5.1}%  {:+.0}", format!("ismcts-{iters}"), r * 100.0, elo(r));
+        println!(
+            "{:>18}  {:>5.1}%  {:+.0}",
+            format!("ismcts-{iters}"),
+            r * 100.0,
+            elo(r)
+        );
     }
 }
 
@@ -156,7 +188,10 @@ fn eps_sweep(n: usize) {
     println!("Epsilon-greedy vs RANDOM, {} games each:\n", n);
     println!("{:>10}  rate    Elo", "epsilon");
     for &e in &[1.0f64, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0.0] {
-        let p = Policy::Heuristic { epsilon: e, params: strong_rollout_params() };
+        let p = Policy::Heuristic {
+            epsilon: e,
+            params: strong_rollout_params(),
+        };
         let r = win_rate_pol(&p, &random, n, 7000 + (e * 100.0) as u64);
         println!("{:>10.2}  {:>5.1}%  {:+.0}", e, r * 100.0, elo(r));
     }
@@ -164,7 +199,10 @@ fn eps_sweep(n: usize) {
 
 /// Does deep ISMCTS actually beat the greedy rollout policy? Maps the top span.
 fn top_sweep(n: usize) {
-    let greedy = Policy::Heuristic { epsilon: 0.0, params: strong_rollout_params() };
+    let greedy = Policy::Heuristic {
+        epsilon: 0.0,
+        params: strong_rollout_params(),
+    };
     println!("ISMCTS (temp=0) vs GREEDY-heuristic, {} games each:\n", n);
     println!("{:>12}  rate    Elo over greedy", "iters");
     for &iters in &[256u32, 512, 1024, 2048, 4096, 8192] {
@@ -174,7 +212,11 @@ fn top_sweep(n: usize) {
 }
 
 fn matrix(n: usize) {
-    println!("ISMCTS ladder — win rate of HIGHER vs LOWER (target > {:.1}%), {} games each\n", TARGET * 100.0, n);
+    println!(
+        "ISMCTS ladder — win rate of HIGHER vs LOWER (target > {:.1}%), {} games each\n",
+        TARGET * 100.0,
+        n
+    );
     println!("{:>12}  {:>10}  rate    margin  pass", "higher", "lower");
     let (mut ok, mut total) = (0, 0);
     let start = Instant::now();
@@ -192,12 +234,21 @@ fn matrix(n: usize) {
             total += 1;
             println!(
                 "{:>12}  {:>10}  {:>5.1}%  {:+.1}%  {}",
-                name(hi), name(lo), r * 100.0, (r - TARGET) * 100.0,
+                name(hi),
+                name(lo),
+                r * 100.0,
+                (r - TARGET) * 100.0,
                 if pass { "OK" } else { "FAIL <<<" }
             );
         }
     }
-    println!("\nGlobal ordering: {}/{} = {:.1}%   ({:.1}s)", ok, total, ok as f64 / total as f64 * 100.0, start.elapsed().as_secs_f64());
+    println!(
+        "\nGlobal ordering: {}/{} = {:.1}%   ({:.1}s)",
+        ok,
+        total,
+        ok as f64 / total as f64 * 100.0,
+        start.elapsed().as_secs_f64()
+    );
 }
 
 /// Measure how many ISMCTS iterations the VPS completes in 200ms.
@@ -236,8 +287,10 @@ fn bench(runs: usize) {
     println!("  p95:    {p95:.1}ms");
     println!();
     println!("=> ~{iters_in_200ms} iterations fit in 200ms");
-    println!("=> calibrated at 2048 iters; production is {:.1}× that",
-        iters_in_200ms as f64 / 2048.0);
+    println!(
+        "=> calibrated at 2048 iters; production is {:.1}× that",
+        iters_in_200ms as f64 / 2048.0
+    );
     if iters_in_200ms < 2048 {
         println!("WARNING: production is WEAKER than calibration — consider reducing TEE_NOBLE_CAL_ITERS or increasing TEE_NOBLE_PROD_MS");
     }
@@ -278,11 +331,24 @@ fn main() {
             top_sweep(n);
         }
         "pair" => {
-            let hi = args.get(2).and_then(|s| parse(s)).expect("usage: pair <hi> <lo> <n>");
-            let lo = args.get(3).and_then(|s| parse(s)).expect("usage: pair <hi> <lo> <n>");
+            let hi = args
+                .get(2)
+                .and_then(|s| parse(s))
+                .expect("usage: pair <hi> <lo> <n>");
+            let lo = args
+                .get(3)
+                .and_then(|s| parse(s))
+                .expect("usage: pair <hi> <lo> <n>");
             let n = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(2000);
             let r = win_rate(hi, lo, n);
-            println!("{} vs {}: {:.1}%  (Elo {:+.0})  over {} games", name(hi), name(lo), r * 100.0, elo(r), n);
+            println!(
+                "{} vs {}: {:.1}%  (Elo {:+.0})  over {} games",
+                name(hi),
+                name(lo),
+                r * 100.0,
+                elo(r),
+                n
+            );
         }
         "bench" => {
             let n = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(20);

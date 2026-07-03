@@ -59,9 +59,15 @@ pub enum Policy {
     /// Deliberately weak "beginner": plays the heuristic's *worst* move with
     /// probability `1 - epsilon`, random otherwise. Lowers the floor so the
     /// bottom rungs of the ladder are clearly separated.
-    AntiHeuristic { epsilon: f64, params: DifficultyParams },
+    AntiHeuristic {
+        epsilon: f64,
+        params: DifficultyParams,
+    },
     /// Greedy heuristic with `epsilon` chance of a random move (no search).
-    Heuristic { epsilon: f64, params: DifficultyParams },
+    Heuristic {
+        epsilon: f64,
+        params: DifficultyParams,
+    },
     /// Information-set MCTS.
     Ismcts {
         budget: Budget,
@@ -130,20 +136,32 @@ pub fn policy_for(difficulty: Difficulty) -> Policy {
     // jagaban +163, tee-noble +213. Bottom four use epsilon-greedy (random →
     // greedy span); top three add ISMCTS search depth on top of greedy.
     match difficulty {
-        Difficulty::Pikin => Policy::Random,                                        //   0
-        Difficulty::Smallz => Policy::Heuristic { epsilon: 0.55, params: strong },  // +17
-        Difficulty::IsabiSmall => Policy::Heuristic { epsilon: 0.42, params: strong }, // +37
-        Difficulty::Chief => Policy::Heuristic { epsilon: 0.25, params: strong },   // +58
-        Difficulty::Egbon => Policy::Heuristic { epsilon: 0.0, params: strong },    // +119 (greedy)
+        Difficulty::Pikin => Policy::Random, //   0
+        Difficulty::Smallz => Policy::Heuristic {
+            epsilon: 0.55,
+            params: strong,
+        }, // +17
+        Difficulty::IsabiSmall => Policy::Heuristic {
+            epsilon: 0.42,
+            params: strong,
+        }, // +37
+        Difficulty::Chief => Policy::Heuristic {
+            epsilon: 0.25,
+            params: strong,
+        }, // +58
+        Difficulty::Egbon => Policy::Heuristic {
+            epsilon: 0.0,
+            params: strong,
+        }, // +119 (greedy)
         Difficulty::Jagaban => Policy::Ismcts {
-            budget: Budget::Iterations(512),                                        // +163
+            budget: Budget::Iterations(512), // +163
             temperature: 0.0,
             exploration: 1.4,
             rollout: strong,
             endgame_samples: 0,
         },
         Difficulty::TeeNoble => Policy::Ismcts {
-            budget: Budget::Iterations(TEE_NOBLE_CAL_ITERS),                        // +213
+            budget: Budget::Iterations(TEE_NOBLE_CAL_ITERS), // +213
             temperature: 0.0,
             exploration: 1.4,
             rollout: strong,
@@ -193,15 +211,29 @@ pub fn act<R: Rng>(state: &GameState, seat_index: usize, policy: &Policy, rng: &
                 select_move_with_params(state, seat_index, params)
             }
         }
-        Policy::Ismcts { budget, temperature, exploration, rollout, endgame_samples } => {
-            if *endgame_samples > 0
-                && state.seats[seat_index].hand.len() <= ENDGAME_THRESHOLD
-            {
-                if let Some(action) = endgame_solve(state, seat_index, *endgame_samples as usize, rollout, rng) {
+        Policy::Ismcts {
+            budget,
+            temperature,
+            exploration,
+            rollout,
+            endgame_samples,
+        } => {
+            if *endgame_samples > 0 && state.seats[seat_index].hand.len() <= ENDGAME_THRESHOLD {
+                if let Some(action) =
+                    endgame_solve(state, seat_index, *endgame_samples as usize, rollout, rng)
+                {
                     return action;
                 }
             }
-            ismcts_search(state, seat_index, *budget, *temperature, *exploration, rollout, rng)
+            ismcts_search(
+                state,
+                seat_index,
+                *budget,
+                *temperature,
+                *exploration,
+                rollout,
+                rng,
+            )
         }
     }
 }
@@ -315,7 +347,13 @@ fn ismcts_search<R: Rng>(
                 let n = &mut arena[node];
                 for a in &actions {
                     if !n.edges.iter().any(|e| e.action == *a) {
-                        n.edges.push(Edge { action: *a, child: None, visits: 0, reward: 0.0, avail: 0 });
+                        n.edges.push(Edge {
+                            action: *a,
+                            child: None,
+                            visits: 0,
+                            reward: 0.0,
+                            avail: 0,
+                        });
                     }
                 }
                 for e in n.edges.iter_mut() {
@@ -454,23 +492,24 @@ fn endgame_solve<R: Rng>(
         for (i, &action) in actions.iter().enumerate() {
             let mut sim = world.clone();
             if apply_action(&mut sim, our_seat, action).is_ok()
-                && rollout_to_end(&mut sim, our_seat, rollout_params, rng) > 0.5 {
-                    wins[i] += 1;
-                }
+                && rollout_to_end(&mut sim, our_seat, rollout_params, rng) > 0.5
+            {
+                wins[i] += 1;
+            }
         }
     }
-    actions.into_iter().zip(wins).max_by_key(|(_, w)| *w).map(|(a, _)| a)
+    actions
+        .into_iter()
+        .zip(wins)
+        .max_by_key(|(_, w)| *w)
+        .map(|(a, _)| a)
 }
 
 fn choose_root_action<R: Rng>(root: &Node, temperature: f64, rng: &mut R) -> Action {
     let visited: Vec<&Edge> = root.edges.iter().filter(|e| e.visits > 0).collect();
     if visited.is_empty() {
         // No search happened (degenerate); fall back to any known edge.
-        return root
-            .edges
-            .first()
-            .map(|e| e.action)
-            .unwrap_or(Action::Draw);
+        return root.edges.first().map(|e| e.action).unwrap_or(Action::Draw);
     }
 
     if temperature <= 0.0 {
@@ -478,9 +517,11 @@ fn choose_root_action<R: Rng>(root: &Node, temperature: f64, rng: &mut R) -> Act
         return visited
             .iter()
             .max_by(|a, b| {
-                a.visits
-                    .cmp(&b.visits)
-                    .then((a.reward / a.visits as f64).partial_cmp(&(b.reward / b.visits as f64)).unwrap())
+                a.visits.cmp(&b.visits).then(
+                    (a.reward / a.visits as f64)
+                        .partial_cmp(&(b.reward / b.visits as f64))
+                        .unwrap(),
+                )
             })
             .map(|e| e.action)
             .unwrap();
@@ -488,7 +529,10 @@ fn choose_root_action<R: Rng>(root: &Node, temperature: f64, rng: &mut R) -> Act
 
     // Sample ∝ visits^(1/temperature).
     let inv = 1.0 / temperature;
-    let weights: Vec<f64> = visited.iter().map(|e| (e.visits as f64).powf(inv)).collect();
+    let weights: Vec<f64> = visited
+        .iter()
+        .map(|e| (e.visits as f64).powf(inv))
+        .collect();
     let total: f64 = weights.iter().sum();
     let mut r = rng.gen::<f64>() * total;
     for (e, w) in visited.iter().zip(&weights) {
@@ -519,14 +563,21 @@ mod tests {
     use rand::SeedableRng;
 
     fn ai_seat(name: &str, d: Difficulty) -> Seat {
-        Seat { name: name.into(), kind: SeatKind::Ai { difficulty: d }, hand: vec![] }
+        Seat {
+            name: name.into(),
+            kind: SeatKind::Ai { difficulty: d },
+            hand: vec![],
+        }
     }
 
     #[test]
     fn determinize_conserves_the_deck_and_our_hand() {
         let mut rng = StdRng::seed_from_u64(1);
         let state = create_game(
-            vec![ai_seat("a", Difficulty::TeeNoble), ai_seat("b", Difficulty::Pikin)],
+            vec![
+                ai_seat("a", Difficulty::TeeNoble),
+                ai_seat("b", Difficulty::Pikin),
+            ],
             GameMode::Stack,
         );
         let world = determinize(&state, 0, &mut rng);
@@ -545,7 +596,10 @@ mod tests {
     fn ismcts_returns_a_legal_move() {
         let mut rng = StdRng::seed_from_u64(7);
         let state = create_game(
-            vec![ai_seat("a", Difficulty::TeeNoble), ai_seat("b", Difficulty::Pikin)],
+            vec![
+                ai_seat("a", Difficulty::TeeNoble),
+                ai_seat("b", Difficulty::Pikin),
+            ],
             GameMode::Stack,
         );
         let policy = Policy::Ismcts {
@@ -557,6 +611,9 @@ mod tests {
         };
         let action = act(&state, 0, &policy, &mut rng);
         let legal = legal_actions(&state, 0);
-        assert!(legal.contains(&action), "ISMCTS returned an illegal move: {action:?}");
+        assert!(
+            legal.contains(&action),
+            "ISMCTS returned an illegal move: {action:?}"
+        );
     }
 }

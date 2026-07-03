@@ -11,23 +11,36 @@ pub fn setup_plays(candidate: &Candidate, ctx: &ModuleContext<'_>) -> f64 {
         return 0.0;
     }
 
-    let Some(seat) = ctx.state.seats.get(ctx.seat_index) else { return 0.0 };
+    let Some(seat) = ctx.state.seats.get(ctx.seat_index) else {
+        return 0.0;
+    };
 
     let simulated_top: TopCard = match candidate {
-        Candidate::PlaySuit { shape, value } => TopCard::Suit { shape: *shape, value: *value },
-        Candidate::PlayWhot { called_shape } => TopCard::Whot { called_shape: *called_shape },
+        Candidate::PlaySuit { shape, value } => TopCard::Suit {
+            shape: *shape,
+            value: *value,
+        },
+        Candidate::PlayWhot { called_shape } => TopCard::Whot {
+            called_shape: *called_shape,
+        },
         Candidate::Draw => unreachable!(),
     };
 
     // Remove exactly one instance of the played card from our hand
     let played_idx = seat.hand.iter().position(|c| match (candidate, c) {
-        (Candidate::PlaySuit { shape, value }, Card::Suit { shape: cs, value: cv }) => {
-            cs == shape && cv == value
-        }
+        (
+            Candidate::PlaySuit { shape, value },
+            Card::Suit {
+                shape: cs,
+                value: cv,
+            },
+        ) => cs == shape && cv == value,
         (Candidate::PlayWhot { .. }, Card::Whot) => true,
         _ => false,
     });
-    let Some(played_idx) = played_idx else { return 0.0 };
+    let Some(played_idx) = played_idx else {
+        return 0.0;
+    };
 
     let remaining: Vec<Card> = seat
         .hand

@@ -9,7 +9,7 @@ const QUEUE_TTL_SECS: i64 = 300; // auto-expire stale entries after 5 min
 
 fn queue_key(mode: GameMode) -> &'static str {
     match mode {
-        GameMode::Stack   => "matchmaking:stack",
+        GameMode::Stack => "matchmaking:stack",
         GameMode::NoStack => "matchmaking:no_stack",
     }
 }
@@ -20,9 +20,7 @@ pub async fn join(
     user_id: Uuid,
     mode: GameMode,
 ) -> anyhow::Result<()> {
-    let score = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs_f64();
+    let score = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
     let key = queue_key(mode);
     let _: () = conn.zadd(key, user_id.to_string(), score).await?;
     let _: () = conn.expire(key, QUEUE_TTL_SECS).await?;
@@ -66,7 +64,7 @@ pub async fn queued_mode(
 ) -> anyhow::Result<Option<GameMode>> {
     let s = user_id.to_string();
     for (key, mode) in [
-        ("matchmaking:stack",    GameMode::Stack),
+        ("matchmaking:stack", GameMode::Stack),
         ("matchmaking:no_stack", GameMode::NoStack),
     ] {
         let score: Option<f64> = conn.zscore(key, &s).await?;

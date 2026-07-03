@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::game::types::{GameState, Shape};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Candidate {

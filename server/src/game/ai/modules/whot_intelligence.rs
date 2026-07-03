@@ -1,11 +1,20 @@
-use crate::game::{ai::types::{Candidate, ModuleContext}, engine::CARDS_PER_SHAPE};
+use crate::game::{
+    ai::types::{Candidate, ModuleContext},
+    engine::CARDS_PER_SHAPE,
+};
 
 /// When forced to play Whot, call the shape opponents are least likely to hold.
 pub fn whot_intelligence(candidate: &Candidate, ctx: &ModuleContext<'_>) -> f64 {
-    let Candidate::PlayWhot { called_shape } = candidate else { return 0.0 };
+    let Candidate::PlayWhot { called_shape } = candidate else {
+        return 0.0;
+    };
 
     // If any suit play is available, don't bias toward Whot — let suit cards win
-    if ctx.candidates.iter().any(|c| matches!(c, Candidate::PlaySuit { .. })) {
+    if ctx
+        .candidates
+        .iter()
+        .any(|c| matches!(c, Candidate::PlaySuit { .. }))
+    {
         return 0.0;
     }
 

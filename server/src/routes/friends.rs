@@ -17,11 +17,11 @@ use crate::{
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct FriendRow {
-    pub id:           Uuid,
-    pub username:     String,
+    pub id: Uuid,
+    pub username: String,
     pub display_name: String,
-    pub avatar_url:   Option<String>,
-    pub since:        DateTime<Utc>,
+    pub avatar_url: Option<String>,
+    pub since: DateTime<Utc>,
 }
 
 // ── GET /friends ───────────────────────────────────────────────────────────────
@@ -130,7 +130,9 @@ pub async fn accept_request(
     .await?;
 
     if updated.rows_affected() == 0 {
-        return Err(AppError::NotFound("no pending request from that user".into()));
+        return Err(AppError::NotFound(
+            "no pending request from that user".into(),
+        ));
     }
 
     notification_store::push(

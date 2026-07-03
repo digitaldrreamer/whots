@@ -10,20 +10,23 @@ pub mod ws;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{routing::{delete, get, patch, post}, Router};
+use axum::{
+    routing::{delete, get, patch, post},
+    Router,
+};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 
 use crate::state::AppState;
 
 pub fn all_routes() -> Router<AppState> {
     Router::new()
-        .nest("/auth",          auth_routes())
-        .nest("/users",         user_routes())
-        .nest("/friends",       friend_routes())
-        .nest("/games",         game_routes())
-        .nest("/matchmaking",   matchmaking_routes())
+        .nest("/auth", auth_routes())
+        .nest("/users", user_routes())
+        .nest("/friends", friend_routes())
+        .nest("/games", game_routes())
+        .nest("/matchmaking", matchmaking_routes())
         .nest("/notifications", notification_routes())
-        .nest("/ws",            ws_routes())
+        .nest("/ws", ws_routes())
 }
 
 fn auth_routes() -> Router<AppState> {
@@ -39,36 +42,36 @@ fn auth_routes() -> Router<AppState> {
     );
 
     Router::new()
-        .route("/guest",               post(auth::guest))
-        .route("/register",            post(auth::register))
-        .route("/login",               post(auth::login))
-        .route("/refresh",             post(auth::refresh))
-        .route("/logout",              delete(auth::logout))
-        .route("/forgot-password",     post(auth::forgot_password))
-        .route("/reset-password",      post(auth::reset_password))
-        .route("/verify-email",        post(auth::verify_email))
+        .route("/guest", post(auth::guest))
+        .route("/register", post(auth::register))
+        .route("/login", post(auth::login))
+        .route("/refresh", post(auth::refresh))
+        .route("/logout", delete(auth::logout))
+        .route("/forgot-password", post(auth::forgot_password))
+        .route("/reset-password", post(auth::reset_password))
+        .route("/verify-email", post(auth::verify_email))
         .route("/resend-verification", post(auth::resend_verification))
         .layer(GovernorLayer { config: conf })
 }
 
 fn user_routes() -> Router<AppState> {
     Router::new()
-        .route("/me",               get(users::me).put(users::update_me))
-        .route("/me/games",         get(users::my_games))
-        .route("/search",           get(users::search))
-        .route("/:username",        get(users::get_by_username))
-        .route("/contacts/upload",  post(users::upload_contact_hashes))
+        .route("/me", get(users::me).put(users::update_me))
+        .route("/me/games", get(users::my_games))
+        .route("/search", get(users::search))
+        .route("/:username", get(users::get_by_username))
+        .route("/contacts/upload", post(users::upload_contact_hashes))
         .route("/contacts/matches", get(users::contact_matches))
 }
 
 fn friend_routes() -> Router<AppState> {
     Router::new()
-        .route("/",                             get(friends::list))
-        .route("/requests",                     get(friends::incoming_requests))
-        .route("/request/:username",            post(friends::send_request))
-        .route("/request/:username/accept",     post(friends::accept_request))
-        .route("/request/:username/decline",    post(friends::decline_request))
-        .route("/:username",                    delete(friends::remove))
+        .route("/", get(friends::list))
+        .route("/requests", get(friends::incoming_requests))
+        .route("/request/:username", post(friends::send_request))
+        .route("/request/:username/accept", post(friends::accept_request))
+        .route("/request/:username/decline", post(friends::decline_request))
+        .route("/:username", delete(friends::remove))
 }
 
 fn game_routes() -> Router<AppState> {
@@ -83,29 +86,32 @@ fn game_routes() -> Router<AppState> {
             .unwrap(),
     );
     Router::new()
-        .route("/",               post(games::create))
-        .route("/:id",            get(games::get_by_id).delete(games::cancel))
-        .route("/:id/accept",     post(games::accept))
-        .route("/:id/decline",    post(games::decline))
+        .route("/", post(games::create))
+        .route("/:id", get(games::get_by_id).delete(games::cancel))
+        .route("/:id/accept", post(games::accept))
+        .route("/:id/decline", post(games::decline))
         .layer(GovernorLayer { config: conf })
 }
 
 fn matchmaking_routes() -> Router<AppState> {
     Router::new()
-        .route("/join",   post(matchmaking::join))
-        .route("/queue",  delete(matchmaking::leave))
+        .route("/join", post(matchmaking::join))
+        .route("/queue", delete(matchmaking::leave))
         .route("/status", get(matchmaking::status))
 }
 
 fn notification_routes() -> Router<AppState> {
     Router::new()
-        .route("/",      get(notifications::list).delete(notifications::mark_all_read))
+        .route(
+            "/",
+            get(notifications::list).delete(notifications::mark_all_read),
+        )
         .route("/count", get(notifications::unread_count))
-        .route("/:id",   patch(notifications::mark_one_read))
+        .route("/:id", patch(notifications::mark_one_read))
 }
 
 fn ws_routes() -> Router<AppState> {
     Router::new()
         .route("/game/:game_id", get(ws::game_socket))
-        .route("/notify",        get(notifications::notify_socket))
+        .route("/notify", get(notifications::notify_socket))
 }

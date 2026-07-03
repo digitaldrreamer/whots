@@ -55,7 +55,7 @@ pub async fn run() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env()?;
-    let port   = config.port;
+    let port = config.port;
     let origin = config.frontend_url.parse::<axum::http::HeaderValue>()?;
 
     let db = PgPoolOptions::new()
@@ -70,18 +70,22 @@ pub async fn run() -> anyhow::Result<()> {
     let redis = redis::Client::open(config.redis_url.as_str())?;
     tracing::info!("Redis client ready");
 
-    let rooms:      Arc<RoomRegistry> = Arc::new(DashMap::new());
-    let notify_txs: Arc<NotifyTxMap>  = Arc::new(DashMap::new());
+    let rooms: Arc<RoomRegistry> = Arc::new(DashMap::new());
+    let notify_txs: Arc<NotifyTxMap> = Arc::new(DashMap::new());
 
     let state = AppState {
         db,
         config: Arc::new(config),
         redis,
-        rooms:      Arc::clone(&rooms),
+        rooms: Arc::clone(&rooms),
         notify_txs: Arc::clone(&notify_txs),
     };
 
-    tokio::spawn(cleanup_task(state.db.clone(), state.redis.clone(), Arc::clone(&rooms)));
+    tokio::spawn(cleanup_task(
+        state.db.clone(),
+        state.redis.clone(),
+        Arc::clone(&rooms),
+    ));
 
     let app = make_router(state, origin);
 
@@ -105,7 +109,7 @@ async fn cleanup_task(db: sqlx::PgPool, redis_client: redis::Client, rooms: Arc<
                     }
                 }
             }
-            Ok(_)  => {}
+            Ok(_) => {}
             Err(e) => tracing::warn!("cleanup task error: {e}"),
         }
     }

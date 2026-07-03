@@ -16,9 +16,9 @@ use std::fs;
 use std::path::Path;
 
 use whots_server::game::{
-    ai::params::{DifficultyParams, select_move_with_params},
-    engine::{create_game, apply_action},
-    types::{Difficulty, GameMode, Seat, SeatKind, GamePhase},
+    ai::params::{select_move_with_params, DifficultyParams},
+    engine::{apply_action, create_game},
+    types::{Difficulty, GameMode, GamePhase, Seat, SeatKind},
 };
 
 // ── Configuration ──────────────────────────────────────────────────────────────
@@ -226,8 +226,16 @@ fn simulate_one(
     };
 
     let seats = vec![
-        Seat { name: difficulty_name(first).to_string(), kind: SeatKind::Ai { difficulty: first }, hand: vec![] },
-        Seat { name: difficulty_name(second).to_string(), kind: SeatKind::Ai { difficulty: second }, hand: vec![] },
+        Seat {
+            name: difficulty_name(first).to_string(),
+            kind: SeatKind::Ai { difficulty: first },
+            hand: vec![],
+        },
+        Seat {
+            name: difficulty_name(second).to_string(),
+            kind: SeatKind::Ai { difficulty: second },
+            hand: vec![],
+        },
     ];
     let mut state = create_game(seats, GameMode::Stack);
     let mut turns = 0;
@@ -235,7 +243,11 @@ fn simulate_one(
     while state.phase == GamePhase::Playing && turns < MAX_TURNS {
         turns += 1;
         let idx = state.current_seat_index;
-        let params = if idx == 0 { first_params } else { second_params };
+        let params = if idx == 0 {
+            first_params
+        } else {
+            second_params
+        };
 
         let action = select_move_with_params(&state, idx, params);
         if apply_action(&mut state, idx, action).is_err() {
@@ -244,7 +256,11 @@ fn simulate_one(
     }
 
     if let Some(winner_idx) = state.winner_index {
-        let a_won = if a_first { winner_idx == 0 } else { winner_idx == 1 };
+        let a_won = if a_first {
+            winner_idx == 0
+        } else {
+            winner_idx == 1
+        };
         Some(a_won)
     } else {
         None
@@ -270,7 +286,11 @@ fn win_rate(
         }
     }
 
-    if total == 0 { 0.5 } else { wins as f64 / total as f64 }
+    if total == 0 {
+        0.5
+    } else {
+        wins as f64 / total as f64
+    }
 }
 
 // ── Objectives ─────────────────────────────────────────────────────────────────
@@ -315,19 +335,35 @@ fn quick_objective(
 
     if pos > 0 {
         let below = LADDER[pos - 1];
-        let rate = win_rate(level, below, &params[difficulty_name(level)], &params[difficulty_name(below)], games_per_matchup);
+        let rate = win_rate(
+            level,
+            below,
+            &params[difficulty_name(level)],
+            &params[difficulty_name(below)],
+            games_per_matchup,
+        );
         score += rate - TARGET_MARGIN;
         terms += 1;
     }
 
     if pos < LADDER.len() - 1 {
         let above = LADDER[pos + 1];
-        let rate = win_rate(level, above, &params[difficulty_name(level)], &params[difficulty_name(above)], games_per_matchup);
+        let rate = win_rate(
+            level,
+            above,
+            &params[difficulty_name(level)],
+            &params[difficulty_name(above)],
+            games_per_matchup,
+        );
         score -= rate;
         terms += 1;
     }
 
-    if terms > 0 { score / terms as f64 * 2.0 } else { 0.0 }
+    if terms > 0 {
+        score / terms as f64 * 2.0
+    } else {
+        0.0
+    }
 }
 
 fn load_checkpoint() -> Option<HashMap<String, DifficultyParams>> {
@@ -337,7 +373,10 @@ fn load_checkpoint() -> Option<HashMap<String, DifficultyParams>> {
 
     if let Ok(json) = fs::read_to_string(CHECKPOINT_PATH) {
         if let Ok(checkpoint) = serde_json::from_str::<Checkpoint>(&json) {
-            println!("  Resumed from checkpoint (sweeps: {}, saved: {})", checkpoint.meta.sweeps_completed, checkpoint.meta.saved_at);
+            println!(
+                "  Resumed from checkpoint (sweeps: {}, saved: {})",
+                checkpoint.meta.sweeps_completed, checkpoint.meta.saved_at
+            );
             return Some(checkpoint.params);
         }
     }
@@ -373,18 +412,34 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════╝\n");
     println!("  Games per eval  : {}", args.games);
     let sweep_str = args.sweeps.to_string();
-    println!("  Max sweeps      : {}", if args.continuous { "∞ (continuous)".to_string() } else { sweep_str });
+    println!(
+        "  Max sweeps      : {}",
+        if args.continuous {
+            "∞ (continuous)".to_string()
+        } else {
+            sweep_str
+        }
+    );
     println!("  Initial step    : {}", args.step);
-    println!("  Continuous      : {}", if args.continuous { "yes" } else { "no" });
+    println!(
+        "  Continuous      : {}",
+        if args.continuous { "yes" } else { "no" }
+    );
     println!("  Checkpoint      : {}\n", CHECKPOINT_PATH);
 
     // Load or init params
     let mut params: HashMap<String, DifficultyParams> = if args.resume {
         load_checkpoint().unwrap_or_else(|| {
-            LADDER.iter().map(|&d| (difficulty_name(d).to_string(), default_params(d))).collect()
+            LADDER
+                .iter()
+                .map(|&d| (difficulty_name(d).to_string(), default_params(d)))
+                .collect()
         })
     } else {
-        LADDER.iter().map(|&d| (difficulty_name(d).to_string(), default_params(d))).collect()
+        LADDER
+            .iter()
+            .map(|&d| (difficulty_name(d).to_string(), default_params(d)))
+            .collect()
     };
 
     if args.verify {
@@ -409,12 +464,18 @@ fn main() {
     for sweep in 1..=args.sweeps {
         total_sweeps += 1;
         let sweep_label = if args.continuous {
-            format!("Sweep {}/{}  restart #{}  total {}", sweep, args.sweeps, restart_count, total_sweeps)
+            format!(
+                "Sweep {}/{}  restart #{}  total {}",
+                sweep, args.sweeps, restart_count, total_sweeps
+            )
         } else {
             format!("Sweep {}/{}", sweep, args.sweeps)
         };
 
-        println!("\n── {}  (step={:.4}) ─────────────────────────────\n", sweep_label, step);
+        println!(
+            "\n── {}  (step={:.4}) ─────────────────────────────\n",
+            sweep_label, step
+        );
 
         let mut improved_this_sweep = false;
 
@@ -430,15 +491,42 @@ fn main() {
                     let mut candidate = best_level_params.clone();
 
                     let old_val = match param_idx {
-                        0 => { candidate.hand_thinning += delta; best_level_params.hand_thinning },
-                        1 => { candidate.action_awareness += delta; best_level_params.action_awareness },
-                        2 => { candidate.threat_detection += delta; best_level_params.threat_detection },
-                        3 => { candidate.card_probability += delta; best_level_params.card_probability },
-                        4 => { candidate.whot_intelligence += delta; best_level_params.whot_intelligence },
-                        5 => { candidate.setup_plays += delta; best_level_params.setup_plays },
-                        6 => { candidate.anticipation += delta; best_level_params.anticipation },
-                        7 => { candidate.noise += delta; best_level_params.noise },
-                        8 => { candidate.bluff_rate += delta; best_level_params.bluff_rate },
+                        0 => {
+                            candidate.hand_thinning += delta;
+                            best_level_params.hand_thinning
+                        }
+                        1 => {
+                            candidate.action_awareness += delta;
+                            best_level_params.action_awareness
+                        }
+                        2 => {
+                            candidate.threat_detection += delta;
+                            best_level_params.threat_detection
+                        }
+                        3 => {
+                            candidate.card_probability += delta;
+                            best_level_params.card_probability
+                        }
+                        4 => {
+                            candidate.whot_intelligence += delta;
+                            best_level_params.whot_intelligence
+                        }
+                        5 => {
+                            candidate.setup_plays += delta;
+                            best_level_params.setup_plays
+                        }
+                        6 => {
+                            candidate.anticipation += delta;
+                            best_level_params.anticipation
+                        }
+                        7 => {
+                            candidate.noise += delta;
+                            best_level_params.noise
+                        }
+                        8 => {
+                            candidate.bluff_rate += delta;
+                            best_level_params.bluff_rate
+                        }
                         _ => 0.0,
                     };
 
@@ -463,7 +551,10 @@ fn main() {
                         };
                         best_level_score = score;
                         best_level_params = candidate;
-                        println!("  {}  {} {:.3} → {:.3}  (Δobj {:.1}%)", level_name, PARAM_NAMES[param_idx], old_val, new_val, delta_obj);
+                        println!(
+                            "  {}  {} {:.3} → {:.3}  (Δobj {:.1}%)",
+                            level_name, PARAM_NAMES[param_idx], old_val, new_val, delta_obj
+                        );
                     }
                 }
             }
@@ -479,13 +570,25 @@ fn main() {
                         all_time_best_score = new_global;
                         all_time_best_params = best_params.clone();
                         save_checkpoint(&all_time_best_params, total_sweeps, all_time_best_score);
-                        println!("  ✓ {}: new all-time best {:.1}%  [saved]\n", level_name, new_global * 100.0);
+                        println!(
+                            "  ✓ {}: new all-time best {:.1}%  [saved]\n",
+                            level_name,
+                            new_global * 100.0
+                        );
                     } else {
-                        println!("  ✓ {}: local improvement {:.1}%\n", level_name, new_global * 100.0);
+                        println!(
+                            "  ✓ {}: local improvement {:.1}%\n",
+                            level_name,
+                            new_global * 100.0
+                        );
                     }
                 } else {
                     best_params.insert(level_name.to_string(), params[level_name].clone());
-                    println!("  ✗ {}: reverted (global dropped to {:.1}%)\n", level_name, new_global * 100.0);
+                    println!(
+                        "  ✗ {}: reverted (global dropped to {:.1}%)\n",
+                        level_name,
+                        new_global * 100.0
+                    );
                 }
             }
         }
@@ -496,7 +599,10 @@ fn main() {
                 println!("  No improvement — step → {:.4}", step);
             } else if args.continuous {
                 restart_count += 1;
-                println!("\n  Converged — restart #{} (perturbing all-time best)\n", restart_count);
+                println!(
+                    "\n  Converged — restart #{} (perturbing all-time best)\n",
+                    restart_count
+                );
                 let mut rng = rand::thread_rng();
                 let mut perturbed = all_time_best_params.clone();
                 for level in TUNABLE.iter() {
@@ -527,11 +633,20 @@ fn main() {
 
     println!("\n\n══ Final results ═══════════════════════════════════════════\n");
     let final_games = (args.games * 4).max(2000);
-    println!("Running final verification with {} games per matchup...\n", final_games);
+    println!(
+        "Running final verification with {} games per matchup...\n",
+        final_games
+    );
     let (final_score, _) = global_ranking_score(&all_time_best_params, final_games);
 
-    println!("  Final ordering score : {:.1}% pairs correct", final_score * 100.0);
-    println!("  All-time best (tuner): {:.1}%", all_time_best_score * 100.0);
+    println!(
+        "  Final ordering score : {:.1}% pairs correct",
+        final_score * 100.0
+    );
+    println!(
+        "  All-time best (tuner): {:.1}%",
+        all_time_best_score * 100.0
+    );
     if args.continuous {
         println!("  Total restarts       : {}", restart_count);
     }

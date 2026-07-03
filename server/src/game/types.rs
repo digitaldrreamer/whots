@@ -2,7 +2,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub const SHAPES: [Shape; 5] = [
-    Shape::Circle, Shape::Triangle, Shape::Cross, Shape::Square, Shape::Star,
+    Shape::Circle,
+    Shape::Triangle,
+    Shape::Cross,
+    Shape::Square,
+    Shape::Star,
 ];
 pub const SUIT_VALUES: [u8; 12] = [1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14];
 pub const WHOT_COUNT: usize = 5;
@@ -55,13 +59,13 @@ pub enum Difficulty {
 impl Difficulty {
     pub fn to_db_str(self) -> &'static str {
         match self {
-            Difficulty::Pikin      => "pikin",
-            Difficulty::Smallz     => "smallz",
+            Difficulty::Pikin => "pikin",
+            Difficulty::Smallz => "smallz",
             Difficulty::IsabiSmall => "isabi_small",
-            Difficulty::Chief      => "chief",
-            Difficulty::Egbon      => "egbon",
-            Difficulty::Jagaban    => "jagaban",
-            Difficulty::TeeNoble   => "tee_noble",
+            Difficulty::Chief => "chief",
+            Difficulty::Egbon => "egbon",
+            Difficulty::Jagaban => "jagaban",
+            Difficulty::TeeNoble => "tee_noble",
         }
     }
 }
@@ -111,24 +115,24 @@ pub struct GameState {
 /// Per-player view of a seat: own hand visible, opponents' hands hidden.
 #[derive(Debug, Clone, Serialize)]
 pub struct SeatView {
-    pub name:      String,
-    pub kind:      SeatKind,
-    pub hand:      Vec<Card>,  // populated only for the viewing player
-    pub hand_size: usize,      // always the true count
+    pub name: String,
+    pub kind: SeatKind,
+    pub hand: Vec<Card>,  // populated only for the viewing player
+    pub hand_size: usize, // always the true count
 }
 
 /// What the server sends to each client — tailored so they see only their own cards.
 #[derive(Debug, Clone, Serialize)]
 pub struct GameStateView {
-    pub id:                 Uuid,
-    pub mode:               GameMode,
-    pub seats:              Vec<SeatView>,
-    pub stock_size:         usize,
-    pub discard_top:        TopCard,
+    pub id: Uuid,
+    pub mode: GameMode,
+    pub seats: Vec<SeatView>,
+    pub stock_size: usize,
+    pub discard_top: TopCard,
     pub current_seat_index: usize,
-    pub phase:              GamePhase,
-    pub pending_effect:     Option<PendingEffect>,
-    pub winner_index:       Option<usize>,
+    pub phase: GamePhase,
+    pub pending_effect: Option<PendingEffect>,
+    pub winner_index: Option<usize>,
 }
 
 /// The action a player (human or AI) takes on their turn.

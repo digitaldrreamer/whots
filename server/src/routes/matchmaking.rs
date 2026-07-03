@@ -41,10 +41,9 @@ pub async fn join(
     let _ = matchmaking_store::leave(&mut redis, claims.sub).await;
 
     // Try to find an opponent already waiting.
-    if let Some(opponent_id) =
-        matchmaking_store::pop_opponent(&mut redis, claims.sub, body.mode)
-            .await
-            .map_err(AppError::Internal)?
+    if let Some(opponent_id) = matchmaking_store::pop_opponent(&mut redis, claims.sub, body.mode)
+        .await
+        .map_err(AppError::Internal)?
     {
         let opp_name: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
             .bind(opponent_id)
@@ -55,12 +54,16 @@ pub async fn join(
         let seats = vec![
             Seat {
                 name: claims.username.clone(),
-                kind: SeatKind::Human { user_id: claims.sub },
+                kind: SeatKind::Human {
+                    user_id: claims.sub,
+                },
                 hand: vec![],
             },
             Seat {
                 name: opp_name,
-                kind: SeatKind::Human { user_id: opponent_id },
+                kind: SeatKind::Human {
+                    user_id: opponent_id,
+                },
                 hand: vec![],
             },
         ];
@@ -106,7 +109,10 @@ pub async fn join(
         )
         .await;
 
-        return Ok(Json(JoinResponse { matched: true, game_id: Some(game_id) }));
+        return Ok(Json(JoinResponse {
+            matched: true,
+            game_id: Some(game_id),
+        }));
     }
 
     // No match yet — sit in queue.
@@ -114,7 +120,10 @@ pub async fn join(
         .await
         .map_err(AppError::Internal)?;
 
-    Ok(Json(JoinResponse { matched: false, game_id: None }))
+    Ok(Json(JoinResponse {
+        matched: false,
+        game_id: None,
+    }))
 }
 
 // ── DELETE /matchmaking/queue ─────────────────────────────────────────────────
@@ -139,7 +148,7 @@ pub async fn leave(
 #[derive(Serialize)]
 pub struct StatusResponse {
     pub in_queue: bool,
-    pub mode:     Option<String>,
+    pub mode: Option<String>,
 }
 
 pub async fn status(
@@ -156,13 +165,13 @@ pub async fn status(
         .map_err(AppError::Internal)?;
     Ok(Json(StatusResponse {
         in_queue: mode.is_some(),
-        mode:     mode.map(|m| mode_str(m).to_string()),
+        mode: mode.map(|m| mode_str(m).to_string()),
     }))
 }
 
 fn mode_str(mode: GameMode) -> &'static str {
     match mode {
-        GameMode::Stack   => "stack",
+        GameMode::Stack => "stack",
         GameMode::NoStack => "no_stack",
     }
 }
