@@ -51,6 +51,9 @@ enum WsAction {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+// The Set* variants' `enabled` flags are part of the client protocol but not
+// yet consumed server-side (media/chat toggles are handled peer-to-peer).
+#[allow(dead_code)]
 enum ClientEvent {
     PlayCard    { action: WsAction },
     Draw,
@@ -75,6 +78,7 @@ pub enum ServerEvent {
 
 // ── Game driver ────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_game_driver(
     game_id: Uuid,
     mut state: GameState,
@@ -228,7 +232,7 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         Ok(a) => a,
         Err(e) => {
             let json = format!("{{\"type\":\"error\",\"message\":\"{e}\"}}");
-            let _ = socket.send(Message::Text(json.into())).await;
+            let _ = socket.send(Message::Text(json)).await;
             return;
         }
     };
@@ -247,7 +251,7 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         if let Ok(Some(gs)) = game_store::load(&mut redis, game_id).await {
             let view = make_view(&gs, if is_participant { Some(user_id) } else { None });
             if let Ok(json) = serde_json::to_string(&ServerEvent::GameState { state: view }) {
-                let _ = socket.send(Message::Text(json.into())).await;
+                let _ = socket.send(Message::Text(json)).await;
             }
         }
     }
@@ -267,7 +271,7 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
                 match event {
                     Some(ev) => {
                         if let Ok(json) = serde_json::to_string(ev.as_ref()) {
-                            if socket.send(Message::Text(json.into())).await.is_err() { break; }
+                            if socket.send(Message::Text(json)).await.is_err() { break; }
                         }
                     }
                     None => break,
@@ -377,7 +381,7 @@ async fn send_move(
     if move_tx.send(HumanMove { user_id, action, respond: tx }).await.is_err() { return; }
     if let Ok(Err(msg)) = rx.await {
         let json = format!("{{\"type\":\"error\",\"message\":\"{msg}\"}}");
-        let _ = socket.send(Message::Text(json.into())).await;
+        let _ = socket.send(Message::Text(json)).await;
     }
 }
 

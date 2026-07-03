@@ -178,6 +178,8 @@ fn matrix(n: usize) {
     println!("{:>12}  {:>10}  rate    margin  pass", "higher", "lower");
     let (mut ok, mut total) = (0, 0);
     let start = Instant::now();
+    // Triangular pairing over the ladder — indices are needed for the (i, j>i) pairs.
+    #[allow(clippy::needless_range_loop)]
     for i in 0..LADDER.len() {
         for j in (i + 1)..LADDER.len() {
             let lo = LADDER[i];

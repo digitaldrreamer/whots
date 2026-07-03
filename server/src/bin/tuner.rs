@@ -1,15 +1,14 @@
-/// WHOTS AI Difficulty Tuner — Rust edition
-///
-/// Coordinate-descent optimizer for DifficultyParams.
-/// Goal: find params for each level so every higher level beats every lower level
-/// by at least TARGET_MARGIN in both 1v1 and 4-player games.
-///
-/// Usage:
-///   cargo run --release --bin tuner -- --games 500 --continuous
-///   cargo run --release --bin tuner -- --verify
-///   cargo run --release --bin tuner -- --resume --continuous
+//! WHOTS AI Difficulty Tuner — Rust edition
+//!
+//! Coordinate-descent optimizer for DifficultyParams.
+//! Goal: find params for each level so every higher level beats every lower level
+//! by at least TARGET_MARGIN in both 1v1 and 4-player games.
+//!
+//! Usage:
+//!   cargo run --release --bin tuner -- --games 500 --continuous
+//!   cargo run --release --bin tuner -- --verify
+//!   cargo run --release --bin tuner -- --resume --continuous
 
-use rand::seq::SliceRandom;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,7 +18,7 @@ use std::path::Path;
 use whots_server::game::{
     ai::params::{DifficultyParams, select_move_with_params},
     engine::{create_game, apply_action},
-    types::{Action, Difficulty, GameMode, GameState, Seat, SeatKind, GamePhase},
+    types::{Difficulty, GameMode, Seat, SeatKind, GamePhase},
 };
 
 // ── Configuration ──────────────────────────────────────────────────────────────
@@ -35,8 +34,6 @@ const MAX_TURNS: usize = 600;
 // Ceiling test: ISMCTS tee-noble wins ~80.7% vs pikin at 200 sims.
 // Elo span 248 / 6 steps = 41 Elo/step → 1/(1+10^(-41/400)) = 55.9%.
 const TARGET_MARGIN: f64 = 0.559;
-const MULTI_WEIGHT: f64 = 0.35;
-const MULTI_GAMES_RATIO: f64 = 0.4;
 const PERTURB_STRENGTH: f64 = 0.5;
 
 const LADDER: &[Difficulty] = &[
@@ -241,7 +238,7 @@ fn simulate_one(
         let params = if idx == 0 { first_params } else { second_params };
 
         let action = select_move_with_params(&state, idx, params);
-        if let Err(_) = apply_action(&mut state, idx, action) {
+        if apply_action(&mut state, idx, action).is_err() {
             break;
         }
     }
@@ -426,6 +423,7 @@ fn main() {
             let mut best_level_score = quick_objective(*level, &best_params, args.games);
             let mut best_level_params = best_params[level_name].clone();
 
+            #[allow(clippy::needless_range_loop)]
             for param_idx in 0..PARAM_NAMES.len() {
                 for &delta_sign in &[1.0, -1.0] {
                     let delta = step * delta_sign;

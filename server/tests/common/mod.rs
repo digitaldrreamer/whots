@@ -103,6 +103,7 @@ pub async fn register_user(
 }
 
 /// Create a guest and return access_token.
+#[allow(dead_code)] // shared test helper, not used by every test binary
 pub async fn guest_token(app: &Router, username: &str) -> String {
     let (status, body) = req(
         app,

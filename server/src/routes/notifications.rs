@@ -107,7 +107,7 @@ async fn handle_notify_socket(mut socket: WebSocket, user_id: Uuid, app: AppStat
 
     for notif in &unread {
         if let Ok(json) = serde_json::to_string(notif) {
-            if socket.send(Message::Text(json.into())).await.is_err() {
+            if socket.send(Message::Text(json)).await.is_err() {
                 return;
             }
         }
@@ -138,7 +138,7 @@ async fn handle_notify_socket(mut socket: WebSocket, user_id: Uuid, app: AppStat
                 match notif {
                     Some(n) => {
                         if let Ok(json) = serde_json::to_string(n.as_ref()) {
-                            if socket.send(Message::Text(json.into())).await.is_err() { break; }
+                            if socket.send(Message::Text(json)).await.is_err() { break; }
                         }
                     }
                     None => break,

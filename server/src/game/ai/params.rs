@@ -151,7 +151,7 @@ impl DifficultyParams {
         clamp!(whot_intelligence);
         clamp!(setup_plays);
         clamp!(anticipation);
-        self.noise = self.noise.max(0.0).min(200.0);
-        self.bluff_rate = self.bluff_rate.max(0.0).min(0.5);
+        self.noise = self.noise.clamp(0.0, 200.0);
+        self.bluff_rate = self.bluff_rate.clamp(0.0, 0.5);
     }
 }

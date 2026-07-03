@@ -66,7 +66,7 @@ pub async fn cancel(
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-enum SeatSpec {
+pub enum SeatSpec {
     // Human seats carry only a user id — the display name is resolved
     // server-side from the users table, never taken from the client.
     Human { user_id: Uuid },
@@ -189,7 +189,7 @@ pub async fn create(
         .map_err(|e| AppError::Internal(e.into()))?;
     game_store::save(&mut redis, &game_state)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
 
     // Notify every other human seat of the invite
     for spec in &body.seats {

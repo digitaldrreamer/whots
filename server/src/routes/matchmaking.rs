@@ -44,7 +44,7 @@ pub async fn join(
     if let Some(opponent_id) =
         matchmaking_store::pop_opponent(&mut redis, claims.sub, body.mode)
             .await
-            .map_err(|e| AppError::Internal(e))?
+            .map_err(AppError::Internal)?
     {
         let opp_name: String = sqlx::query_scalar("SELECT username FROM users WHERE id = $1")
             .bind(opponent_id)
@@ -92,7 +92,7 @@ pub async fn join(
 
         game_store::save(&mut redis, &game_state)
             .await
-            .map_err(|e| AppError::Internal(e))?;
+            .map_err(AppError::Internal)?;
 
         notification_store::push(
             &app.db,
@@ -112,7 +112,7 @@ pub async fn join(
     // No match yet — sit in queue.
     matchmaking_store::join(&mut redis, claims.sub, body.mode)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
 
     Ok(Json(JoinResponse { matched: false, game_id: None }))
 }
@@ -130,7 +130,7 @@ pub async fn leave(
         .map_err(|e| AppError::Internal(e.into()))?;
     matchmaking_store::leave(&mut redis, claims.sub)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -153,7 +153,7 @@ pub async fn status(
         .map_err(|e| AppError::Internal(e.into()))?;
     let mode = matchmaking_store::queued_mode(&mut redis, claims.sub)
         .await
-        .map_err(|e| AppError::Internal(e))?;
+        .map_err(AppError::Internal)?;
     Ok(Json(StatusResponse {
         in_queue: mode.is_some(),
         mode:     mode.map(|m| mode_str(m).to_string()),

@@ -280,7 +280,7 @@ fn ismcts_search<R: Rng>(
     while iters < max_iters {
         if let Some(dl) = deadline {
             // Check the clock periodically rather than every iteration.
-            if iters % 32 == 0 && Instant::now() >= dl {
+            if iters.is_multiple_of(32) && Instant::now() >= dl {
                 break;
             }
         }
@@ -453,11 +453,10 @@ fn endgame_solve<R: Rng>(
         let world = determinize(state, our_seat, rng);
         for (i, &action) in actions.iter().enumerate() {
             let mut sim = world.clone();
-            if apply_action(&mut sim, our_seat, action).is_ok() {
-                if rollout_to_end(&mut sim, our_seat, rollout_params, rng) > 0.5 {
+            if apply_action(&mut sim, our_seat, action).is_ok()
+                && rollout_to_end(&mut sim, our_seat, rollout_params, rng) > 0.5 {
                     wins[i] += 1;
                 }
-            }
         }
     }
     actions.into_iter().zip(wins).max_by_key(|(_, w)| *w).map(|(a, _)| a)
