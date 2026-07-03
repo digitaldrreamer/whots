@@ -8,6 +8,7 @@ pub mod users;
 pub mod ws;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{routing::{delete, get, patch, post}, Router};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -26,10 +27,12 @@ pub fn all_routes() -> Router<AppState> {
 }
 
 fn auth_routes() -> Router<AppState> {
-    // 5 requests per minute per IP — 1 per 12 s with a burst of 5
+    // 5 requests per minute per IP — 1 per 12 s with a burst of 5.
+    // NOTE: use `.period(12s)`, not `.per_second(12)`. The latter permits 12
+    // requests every second (~720/min), 144× the intended rate.
     let conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(12)
+            .period(Duration::from_secs(12))
             .burst_size(5)
             .finish()
             .unwrap(),
@@ -69,10 +72,12 @@ fn friend_routes() -> Router<AppState> {
 }
 
 fn game_routes() -> Router<AppState> {
-    // 10 creates/cancels per minute per IP — 1 per 6 s with burst of 3
+    // 10 creates/cancels per minute per IP — 1 per 6 s with burst of 3.
+    // `.period(6s)` throttles to 1 request per 6 s; `.per_second(6)` would
+    // instead allow 6 per second.
     let conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(6)
+            .period(Duration::from_secs(6))
             .burst_size(3)
             .finish()
             .unwrap(),

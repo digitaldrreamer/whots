@@ -172,3 +172,62 @@ async fn get_game_not_found(pool: PgPool) {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[sqlx::test]
+async fn get_game_non_participant_is_forbidden(pool: PgPool) {
+    let app = make_app(pool);
+    let (token_a, _) = register_user(&app, "host", "Password1!").await;
+    let (token_b, _) = register_user(&app, "outsider", "Password1!").await;
+    let uid_a = my_id(&app, &token_a).await;
+
+    let (_, body) = req(
+        &app,
+        "POST",
+        "/api/games",
+        Some(json!({
+            "mode": "stack",
+            "seats": [
+                { "kind": "human", "user_id": uid_a },
+                { "kind": "ai", "difficulty": "pikin", "name": "Bot" }
+            ]
+        })),
+        Some(&token_a),
+    )
+    .await;
+    let game_id = body["game_id"].as_str().unwrap();
+
+    // A user with no seat in the game cannot read its details.
+    let (status, _) = req(
+        &app,
+        "GET",
+        &format!("/api/games/{game_id}"),
+        None,
+        Some(&token_b),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[sqlx::test]
+async fn create_game_rejects_unknown_user_seat(pool: PgPool) {
+    let app = make_app(pool);
+    let (token, _) = register_user(&app, "creator2", "Password1!").await;
+    let uid = my_id(&app, &token).await;
+
+    // A second human seat referencing a user that does not exist is rejected.
+    let (status, _) = req(
+        &app,
+        "POST",
+        "/api/games",
+        Some(json!({
+            "mode": "stack",
+            "seats": [
+                { "kind": "human", "user_id": uid },
+                { "kind": "human", "user_id": Uuid::new_v4() }
+            ]
+        })),
+        Some(&token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

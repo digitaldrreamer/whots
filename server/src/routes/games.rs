@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -65,7 +67,9 @@ pub async fn cancel(
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum SeatSpec {
-    Human { user_id: Uuid, name: String },
+    // Human seats carry only a user id — the display name is resolved
+    // server-side from the users table, never taken from the client.
+    Human { user_id: Uuid },
     Ai    { difficulty: Difficulty, name: String },
 }
 
@@ -93,18 +97,48 @@ pub async fn create(
     }
 
     let caller_present = body.seats.iter().any(|s| {
-        matches!(s, SeatSpec::Human { user_id, .. } if *user_id == claims.sub)
+        matches!(s, SeatSpec::Human { user_id } if *user_id == claims.sub)
     });
     if !caller_present {
         return Err(AppError::BadRequest("you must be a participant in the game you create".into()));
+    }
+
+    // Resolve every human seat's display name from the database rather than
+    // trusting the caller-supplied `name`. Otherwise the game creator could set
+    // an arbitrary name on another user's seat (impersonation / content
+    // injection), which then gets stored, broadcast over WebSocket and pushed
+    // as a notification to the victim. This also validates that each referenced
+    // user actually exists.
+    let human_ids: Vec<Uuid> = body
+        .seats
+        .iter()
+        .filter_map(|s| match s {
+            SeatSpec::Human { user_id } => Some(*user_id),
+            SeatSpec::Ai { .. } => None,
+        })
+        .collect();
+
+    let display_names: HashMap<Uuid, String> =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, display_name FROM users WHERE id = ANY($1)")
+            .bind(&human_ids)
+            .fetch_all(&app.db)
+            .await?
+            .into_iter()
+            .collect();
+
+    for id in &human_ids {
+        if !display_names.contains_key(id) {
+            return Err(AppError::BadRequest("unknown user in seats".into()));
+        }
     }
 
     let seats: Vec<Seat> = body
         .seats
         .iter()
         .map(|spec| match spec {
-            SeatSpec::Human { user_id, name } => Seat {
-                name: name.clone(),
+            SeatSpec::Human { user_id } => Seat {
+                // Server-resolved name — client input is ignored for human seats.
+                name: display_names.get(user_id).cloned().unwrap_or_default(),
                 kind: SeatKind::Human { user_id: *user_id },
                 hand: vec![],
             },
@@ -131,7 +165,7 @@ pub async fn create(
 
     for (idx, spec) in body.seats.iter().enumerate() {
         let (uid, is_ai, difficulty_str) = match spec {
-            SeatSpec::Human { user_id, .. } => (Some(*user_id), false, None),
+            SeatSpec::Human { user_id } => (Some(*user_id), false, None),
             SeatSpec::Ai { difficulty, .. }  => (None, true, Some(difficulty.to_db_str())),
         };
         sqlx::query(
@@ -159,7 +193,7 @@ pub async fn create(
 
     // Notify every other human seat of the invite
     for spec in &body.seats {
-        if let SeatSpec::Human { user_id, .. } = spec {
+        if let SeatSpec::Human { user_id } = spec {
             if *user_id != claims.sub {
                 notification_store::push(
                     &app.db,
@@ -218,10 +252,34 @@ pub struct GameResponse {
 }
 
 pub async fn get_by_id(
-    AuthUser(_claims): AuthUser,
+    AuthUser(claims): AuthUser,
     State(app): State<AppState>,
     Path(game_id): Path<Uuid>,
 ) -> Result<Json<GameResponse>, AppError> {
+    // Only participants (seat holders) or the game's creator may view its
+    // details. Without this, any authenticated user could enumerate game UUIDs
+    // and harvest every player's user id, username and avatar.
+    let (exists, is_participant): (bool, bool) = sqlx::query_as(
+        "SELECT
+             EXISTS(SELECT 1 FROM games WHERE id = $1) AS game_exists,
+             EXISTS(
+                 SELECT 1 FROM game_seats WHERE game_id = $1 AND user_id = $2
+                 UNION ALL
+                 SELECT 1 FROM games      WHERE id = $1      AND created_by = $2
+             ) AS is_participant",
+    )
+    .bind(game_id)
+    .bind(claims.sub)
+    .fetch_one(&app.db)
+    .await?;
+
+    if !exists {
+        return Err(AppError::NotFound("game not found".into()));
+    }
+    if !is_participant {
+        return Err(AppError::Forbidden);
+    }
+
     let rows = sqlx::query_as::<_, GameSeatRow>(
         "SELECT
              g.id, g.mode, g.status, g.created_by, g.created_at, g.finished_at,
