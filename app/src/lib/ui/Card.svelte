@@ -10,6 +10,7 @@
 		size = 'md',
 		selectable = false,
 		disabled = false,
+		muted = false,
 		selected = false,
 		onclick
 	}: {
@@ -18,6 +19,7 @@
 		size?: 'sm' | 'md' | 'lg';
 		selectable?: boolean;
 		disabled?: boolean;
+		muted?: boolean;
 		selected?: boolean;
 		onclick?: () => void;
 	} = $props();
@@ -65,6 +67,7 @@
 		<button
 			class="card face {size} selectable"
 			class:selected
+			class:muted
 			class:whot={isWhot}
 			style:--card-color={color}
 			{disabled}
@@ -137,27 +140,42 @@
 
 	.selectable {
 		cursor: pointer;
+		/* Springy lift on the way up, calm settle on the way down. */
 		transition:
-			transform 0.14s ease,
-			box-shadow 0.14s ease;
+			transform 0.34s cubic-bezier(0.34, 1.5, 0.5, 1),
+			box-shadow 0.28s ease,
+			filter 0.3s ease;
 	}
 	.selectable:hover:not(:disabled) {
-		transform: translateY(-10px);
+		transform: translateY(-14px) scale(1.03);
 		box-shadow:
-			0 6px 12px rgba(0, 0, 0, 0.3),
-			0 14px 26px rgba(0, 0, 0, 0.25);
+			0 8px 14px rgba(0, 0, 0, 0.32),
+			0 18px 30px rgba(0, 0, 0, 0.26);
+	}
+	.selectable:active:not(:disabled) {
+		transform: translateY(-8px) scale(1.01);
+		transition-duration: 0.08s;
 	}
 	.selectable:disabled {
-		cursor: not-allowed;
-		filter: saturate(0.55) brightness(0.9);
-		opacity: 0.72;
+		cursor: default;
+	}
+	/* Unplayable-on-your-turn: keep the face fully opaque and legible —
+	   just drain the colour a touch so playable cards read as the live ones. */
+	.muted {
+		filter: saturate(0.5) brightness(0.97);
 	}
 	.selected {
-		transform: translateY(-14px);
+		transform: translateY(-16px) scale(1.03);
 		outline: 3px solid var(--gold, #e8b84b);
 		box-shadow:
-			0 8px 16px rgba(0, 0, 0, 0.35),
+			0 10px 18px rgba(0, 0, 0, 0.35),
 			0 0 0 5px rgba(232, 184, 75, 0.25);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.selectable {
+			transition-duration: 0.01ms;
+		}
 	}
 
 	.corner {
