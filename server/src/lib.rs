@@ -15,7 +15,7 @@ use dashmap::DashMap;
 use sqlx::postgres::PgPoolOptions;
 use tower_http::{
     compression::CompressionLayer,
-    cors::{Any, CorsLayer},
+    cors::{AllowHeaders, CorsLayer},
     trace::TraceLayer,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -28,10 +28,14 @@ use store::notification_store::NotifyTxMap;
 
 /// Build the application router (extracted so integration tests can call it).
 pub fn make_router(state: AppState, origin: axum::http::HeaderValue) -> Router {
+    // `allow_credentials(true)` cannot be combined with a wildcard
+    // `Access-Control-Allow-Headers: *` — tower-http panics on that pairing.
+    // Mirror the request's requested headers instead, which is valid with
+    // credentials and covers the Content-Type / Authorization the client sends.
     let cors = CorsLayer::new()
         .allow_origin(origin)
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers(Any)
+        .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true);
 
     Router::new()
