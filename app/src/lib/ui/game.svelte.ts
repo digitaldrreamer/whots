@@ -90,7 +90,7 @@ export class GameController {
 	winBurst = $state(0);
 	teeIntro = $state(false);
 	lastPlay = $state<{ id: number; seat: number; card: Card } | null>(null);
-	lastDraw = $state<{ id: number; seat: number } | null>(null);
+	lastDraw = $state<{ id: number; seat: number; count: number } | null>(null);
 
 	// Tee-Noble (wired in P6)
 	isTeeGame = $state(false);
@@ -383,7 +383,7 @@ export class GameController {
 			if (grew) {
 				const drew = next.seats[mover].hand_size - prev.seats[mover].hand_size;
 				this.#flightId += 1;
-				this.lastDraw = { id: this.#flightId, seat: mover };
+				this.lastDraw = { id: this.#flightId, seat: mover, count: drew };
 				const wasPick = prev.pending_effect?.kind === 'pick';
 				if (byMe && wasPick) {
 					sound.play('youhit');

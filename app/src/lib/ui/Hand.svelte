@@ -93,7 +93,8 @@
 	.toggle {
 		position: absolute;
 		right: 0.75rem;
-		top: -0.35rem;
+		/* Sit inside the hand's headroom, clear of Board's "Go to market" button. */
+		top: 0.5rem;
 		z-index: 10;
 		display: inline-flex;
 		align-items: center;
@@ -140,8 +141,9 @@
 	.viewport {
 		display: flex;
 		/* Headroom so the hover/select lift is never clipped once this
-		   becomes a scroll container in spread mode. */
-		padding: 1.75rem 1rem 0.5rem;
+		   becomes a scroll container in spread mode, and so the Spread
+		   toggle sits above the cards. */
+		padding: 2.4rem 1rem 0.5rem;
 		min-height: 182px;
 		overflow: visible;
 		scroll-behavior: smooth;

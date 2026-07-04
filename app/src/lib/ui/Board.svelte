@@ -30,7 +30,8 @@
 	// Re-key the slam animation whenever the top card changes.
 	const topKey = $derived(view ? JSON.stringify(view.discard_top) : '');
 
-	const drawEnabled = $derived(game.mustDraw || (game.isMyTurn && game.pendingPick > 0));
+	// You may always go to market on your turn (voluntary draw), pending pick or not.
+	const drawEnabled = $derived(game.isMyTurn);
 
 	const status = $derived.by(() => {
 		if (!view) return '';
@@ -113,7 +114,19 @@
 			const from = rectOf('.stock .stock-btn');
 			const to =
 				ld.seat === game.mySeatIndex ? rectOf('.you-area') : rectOf(`[data-seat="${ld.seat}"]`);
-			if (from && to) flights = [...flights, { id: ld.id, faceDown: true, from, to }];
+			if (!from || !to) return;
+			// One ghost card per drawn card, fanned + staggered so a Pick Two/Three
+			// (or General Market) reads as the right number of cards.
+			const n = Math.max(1, ld.count);
+			for (let k = 0; k < n; k++) {
+				const jitter = (i: typeof from) => ({ ...i, x: i.x + (k - (n - 1) / 2) * 14 });
+				setTimeout(() => {
+					flights = [
+						...flights,
+						{ id: ld.id * 1000 + k, faceDown: true, from: jitter(from), to: jitter(to) }
+					];
+				}, k * 90);
+			}
 		});
 	});
 

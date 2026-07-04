@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::game::{
     deck::shuffled_deck,
     effects::{suit_card_effect, ActionEffect},
-    moves::{can_play, valid_moves},
+    moves::can_play,
     types::{
         Action, Card, GameMode, GamePhase, GameState, GameStateView, PendingEffect, Seat, SeatKind,
         SeatView, Shape, TopCard, SUIT_VALUES,
@@ -70,9 +70,13 @@ fn compute_pending(
             };
             Some(PendingEffect::Pick { total: base + 3 })
         }
-        Some(ActionEffect::HoldOn) => Some(PendingEffect::Skip),
+        // Hold On and General Market are pure "play again" — no pending effect
+        // carried into the follow-up turn.
         Some(
-            ActionEffect::Suspension | ActionEffect::GeneralMarket | ActionEffect::Whot { .. },
+            ActionEffect::HoldOn
+            | ActionEffect::Suspension
+            | ActionEffect::GeneralMarket
+            | ActionEffect::Whot { .. },
         ) => None,
     }
 }
@@ -83,14 +87,15 @@ fn resolve_next_turn(state: &mut GameState, effect: Option<ActionEffect>) {
     }
     match effect {
         Some(ActionEffect::HoldOn) => {
-            // A gets a follow-up turn — stay on same seat
-            // pending_effect is already Skip (set in apply_suit_card)
+            // "Play again" — keep the same seat. Stackable (another 1 replays).
         }
         Some(ActionEffect::Suspension) => {
             state.pending_effect = None;
             state.current_seat_index = advance(state, 2);
         }
         Some(ActionEffect::GeneralMarket) => {
+            // Every other player draws one card, then the player plays again
+            // (same "play again" flow as Hold On — keep the same seat).
             reshuffle_discard(state);
             let current = state.current_seat_index;
             let n = state.seats.len();
@@ -103,7 +108,6 @@ fn resolve_next_turn(state: &mut GameState, effect: Option<ActionEffect>) {
                 }
             }
             state.pending_effect = None;
-            state.current_seat_index = advance(state, 1);
         }
         _ => {
             // pick_two, pick_three, whot, non-action, or end of hold_on chain
@@ -255,17 +259,8 @@ fn apply_draw(state: &mut GameState, seat_index: usize) -> Result<(), GameError>
         return Ok(());
     }
 
-    // Normal draw: only valid when there are no playable cards
-    let valid = valid_moves(
-        &state.seats[seat_index].hand,
-        state.top_card,
-        &state.pending_effect,
-        state.mode,
-    );
-    if !valid.is_empty() {
-        return Err(GameError::MustPlay);
-    }
-
+    // Voluntary draw: a player may always go to market and take a single card,
+    // even when they hold a playable card. Drawing ends the turn.
     let skipping = matches!(state.pending_effect, Some(PendingEffect::Skip));
     reshuffle_discard(state);
 
