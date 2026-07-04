@@ -13,7 +13,12 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::{auth::AuthUser, error::AppError, models::notification::Notification, state::AppState};
+use crate::{
+    auth::{AuthUser, WsAuthUser},
+    error::AppError,
+    models::notification::Notification,
+    state::AppState,
+};
 
 // ── GET /notifications ─────────────────────────────────────────────────────────
 
@@ -84,7 +89,7 @@ pub async fn mark_one_read(
 
 pub async fn notify_socket(
     ws: WebSocketUpgrade,
-    AuthUser(claims): AuthUser,
+    WsAuthUser(claims): WsAuthUser,
     State(app): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
     Ok(ws.on_upgrade(move |socket| handle_notify_socket(socket, claims.sub, app)))
