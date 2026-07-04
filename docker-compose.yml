@@ -100,10 +100,14 @@ services:
       - internal
       - dokploy-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/ || exit 1"]
+      # Use 127.0.0.1 (not localhost): BusyBox resolves localhost to ::1 first,
+      # but adapter-node binds IPv4 0.0.0.0 only. A failing healthcheck makes
+      # Traefik's Docker provider hide the container, so the route 404s.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 15s
 
 networks:
   internal:
