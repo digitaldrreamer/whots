@@ -210,6 +210,150 @@ fn apply_suit_card(
     Ok(())
 }
 
+/// Play several cards of the **same number** in one turn (stack mode only).
+/// `shapes` lists the cards (one entry per card); all share `value`. Effects
+/// accumulate: n 2s = +2n, n 5s = +3n, n 8s = skip n, n 14s = others draw n each,
+/// n 1s = play again. A single-card list behaves like `apply_suit_card`.
+pub fn apply_stack(
+    state: &mut GameState,
+    seat_index: usize,
+    value: u8,
+    shapes: &[Shape],
+) -> Result<(), GameError> {
+    if state.phase != GamePhase::Playing {
+        return Err(GameError::GameNotPlaying);
+    }
+    if state.current_seat_index != seat_index {
+        return Err(GameError::NotYourTurn);
+    }
+    // Stacking multiple cards is a stack-mode feature. (A single card is fine in
+    // either mode, but single plays come through apply_suit_card.)
+    if shapes.len() != 1 && state.mode != GameMode::Stack {
+        return Err(GameError::InvalidMove);
+    }
+    if shapes.is_empty() {
+        return Err(GameError::InvalidMove);
+    }
+
+    // Every listed card must be in hand (respecting duplicates).
+    let cards: Vec<Card> = shapes
+        .iter()
+        .map(|&shape| Card::Suit { shape, value })
+        .collect();
+    let mut check = state.seats[seat_index].hand.clone();
+    for c in &cards {
+        match check.iter().position(|x| x == c) {
+            Some(pos) => {
+                check.remove(pos);
+            }
+            None => return Err(GameError::CardNotInHand),
+        }
+    }
+
+    // At least one card must be legal on the pile (this also enforces the
+    // number-locked counter when a penalty is pending — all cards share `value`).
+    if !cards
+        .iter()
+        .any(|&c| can_play(c, state.top_card, &state.pending_effect, state.mode))
+    {
+        return Err(GameError::InvalidMove);
+    }
+
+    // Remove the cards and lay them on the pile; the last becomes the top.
+    for c in &cards {
+        let pos = state.seats[seat_index]
+            .hand
+            .iter()
+            .position(|x| x == c)
+            .expect("verified present above");
+        state.seats[seat_index].hand.remove(pos);
+        state.discard_pile.push(*c);
+    }
+    let last = *cards.last().expect("non-empty");
+    if let Card::Suit { shape, value } = last {
+        state.top_card = TopCard::Suit { shape, value };
+    }
+
+    let n = cards.len() as u32;
+    let effect = suit_card_effect(value);
+    state.pending_effect = compute_pending_stack(effect, state.pending_effect.clone(), n);
+
+    let won = state.seats[seat_index].hand.is_empty();
+    if won {
+        state.phase = GamePhase::Finished;
+        state.winner_index = Some(seat_index);
+    }
+
+    resolve_stack_turn(state, effect, n);
+    Ok(())
+}
+
+fn compute_pending_stack(
+    effect: Option<ActionEffect>,
+    current: Option<PendingEffect>,
+    n: u32,
+) -> Option<PendingEffect> {
+    match effect {
+        Some(ActionEffect::PickTwo) => {
+            let base = match current {
+                Some(PendingEffect::Pick { total, card: 2 }) => total,
+                _ => 0,
+            };
+            Some(PendingEffect::Pick {
+                total: base + 2 * n,
+                card: 2,
+            })
+        }
+        Some(ActionEffect::PickThree) => {
+            let base = match current {
+                Some(PendingEffect::Pick { total, card: 5 }) => total,
+                _ => 0,
+            };
+            Some(PendingEffect::Pick {
+                total: base + 3 * n,
+                card: 5,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn resolve_stack_turn(state: &mut GameState, effect: Option<ActionEffect>, n: u32) {
+    if state.winner_index.is_some() {
+        return;
+    }
+    match effect {
+        // Play again — keep the seat (stackable via chaining is moot here, the
+        // whole same-number group was one play).
+        Some(ActionEffect::HoldOn) => {}
+        Some(ActionEffect::GeneralMarket) => {
+            reshuffle_discard(state);
+            let current = state.current_seat_index;
+            let seats = state.seats.len();
+            for i in 0..seats {
+                if i == current {
+                    continue;
+                }
+                for _ in 0..n {
+                    if let Some(card) = state.stock_pile.pop() {
+                        state.seats[i].hand.push(card);
+                    }
+                }
+            }
+            state.pending_effect = None;
+        }
+        // Skip n players.
+        Some(ActionEffect::Suspension) => {
+            state.pending_effect = None;
+            state.current_seat_index = advance(state, 1 + n as usize);
+        }
+        // Pick-two / pick-three (penalty passes on) or plain cards: next player.
+        _ => {
+            state.current_seat_index = advance(state, 1);
+        }
+    }
+}
+
 fn apply_whot_card(
     state: &mut GameState,
     seat_index: usize,
@@ -340,3 +484,117 @@ pub fn is_action_card(value: u8) -> bool {
 
 /// Number of suit cards per shape in a full deck (used by AI modules)
 pub const CARDS_PER_SHAPE: u32 = SUIT_VALUES.len() as u32;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::types::{Seat, SeatKind};
+
+    fn suit(shape: Shape, value: u8) -> Card {
+        Card::Suit { shape, value }
+    }
+    fn seat(name: &str, hand: Vec<Card>) -> Seat {
+        Seat {
+            name: name.into(),
+            kind: SeatKind::Human {
+                user_id: uuid::Uuid::new_v4(),
+            },
+            hand,
+        }
+    }
+    fn state(mode: GameMode, seats: Vec<Seat>, top: (Shape, u8)) -> GameState {
+        GameState {
+            id: uuid::Uuid::new_v4(),
+            mode,
+            seats,
+            stock_pile: vec![suit(Shape::Circle, 3); 30],
+            discard_pile: vec![suit(top.0, top.1)],
+            top_card: TopCard::Suit {
+                shape: top.0,
+                value: top.1,
+            },
+            current_seat_index: 0,
+            phase: GamePhase::Playing,
+            pending_effect: None,
+            winner_index: None,
+        }
+    }
+
+    #[test]
+    fn stacking_two_twos_piles_penalty() {
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat(
+                    "A",
+                    vec![
+                        suit(Shape::Triangle, 2),
+                        suit(Shape::Star, 2),
+                        suit(Shape::Circle, 7),
+                    ],
+                ),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 2),
+        );
+        apply_stack(&mut st, 0, 2, &[Shape::Triangle, Shape::Star]).unwrap();
+        assert_eq!(
+            st.pending_effect,
+            Some(PendingEffect::Pick { total: 4, card: 2 })
+        );
+        assert_eq!(st.current_seat_index, 1);
+        assert_eq!(st.seats[0].hand.len(), 1);
+    }
+
+    #[test]
+    fn no_stack_rejects_multicard() {
+        let mut st = state(
+            GameMode::NoStack,
+            vec![
+                seat("A", vec![suit(Shape::Triangle, 2), suit(Shape::Star, 2)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 2),
+        );
+        assert!(apply_stack(&mut st, 0, 2, &[Shape::Triangle, Shape::Star]).is_err());
+    }
+
+    #[test]
+    fn counter_is_number_locked() {
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Triangle, 5)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 2),
+        );
+        st.pending_effect = Some(PendingEffect::Pick { total: 2, card: 2 });
+        // A 5 cannot counter a 2-penalty.
+        assert!(apply_stack(&mut st, 0, 5, &[Shape::Triangle]).is_err());
+    }
+
+    #[test]
+    fn double_suspension_skips_two() {
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat(
+                    "A",
+                    vec![
+                        suit(Shape::Triangle, 8),
+                        suit(Shape::Star, 8),
+                        suit(Shape::Circle, 3),
+                    ],
+                ),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+                seat("C", vec![suit(Shape::Circle, 11)]),
+                seat("D", vec![suit(Shape::Square, 12)]),
+            ],
+            (Shape::Circle, 8),
+        );
+        apply_stack(&mut st, 0, 8, &[Shape::Triangle, Shape::Star]).unwrap();
+        // skip 2 players: from 0, advance 1 + 2 = 3 -> seat 3 (D)
+        assert_eq!(st.current_seat_index, 3);
+    }
+}

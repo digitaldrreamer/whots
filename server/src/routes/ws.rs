@@ -17,7 +17,7 @@ use crate::{
     error::AppError,
     game::{
         ai::select_move,
-        engine::{apply_action, make_view, GameError},
+        engine::{apply_action, apply_stack, make_view, GameError},
         types::{Action, GamePhase, GameState, GameStateView, SeatKind, Shape},
     },
     state::AppState,
@@ -26,9 +26,15 @@ use crate::{
 
 // ── Room registry ──────────────────────────────────────────────────────────────
 
+/// A move from a human: either a single card/draw, or a same-number stack.
+pub enum PlayerMove {
+    Single(Action),
+    Stack { value: u8, shapes: Vec<Shape> },
+}
+
 pub struct HumanMove {
     pub user_id: Uuid,
-    pub action: Action,
+    pub mv: PlayerMove,
     pub respond: oneshot::Sender<Result<(), String>>,
 }
 
@@ -59,6 +65,7 @@ enum WsAction {
 #[allow(dead_code)]
 enum ClientEvent {
     PlayCard { action: WsAction },
+    PlayStack { value: u8, shapes: Vec<Shape> },
     Draw,
     RtcOffer { to: Uuid, sdp: String },
     RtcAnswer { to: Uuid, sdp: String },
@@ -127,8 +134,13 @@ pub async fn run_game_driver(
                     continue;
                 }
 
-                let result = apply_action(&mut state, seat_idx, mv.action)
-                    .map_err(|e: GameError| e.to_string());
+                let result = match &mv.mv {
+                    PlayerMove::Single(action) => apply_action(&mut state, seat_idx, *action),
+                    PlayerMove::Stack { value, shapes } => {
+                        apply_stack(&mut state, seat_idx, *value, shapes)
+                    }
+                }
+                .map_err(|e: GameError| e.to_string());
                 let ok = result.is_ok();
                 let _ = mv.respond.send(result);
                 if ok {
@@ -349,9 +361,14 @@ async fn on_client_message(
                 WsAction::Suit { shape, value } => Action::PlaySuit { shape, value },
                 WsAction::Whot { called_shape } => Action::PlayWhot { called_shape },
             };
-            send_move(user_id, action, move_tx, socket).await;
+            send_move(user_id, PlayerMove::Single(action), move_tx, socket).await;
         }
-        ClientEvent::Draw => send_move(user_id, Action::Draw, move_tx, socket).await,
+        ClientEvent::PlayStack { value, shapes } => {
+            send_move(user_id, PlayerMove::Stack { value, shapes }, move_tx, socket).await;
+        }
+        ClientEvent::Draw => {
+            send_move(user_id, PlayerMove::Single(Action::Draw), move_tx, socket).await
+        }
 
         ClientEvent::RtcOffer { to, sdp } => {
             relay_rtc(user_id, to, "offer", sdp, player_txs, db).await
@@ -416,7 +433,7 @@ async fn are_friends(db: &sqlx::PgPool, a: Uuid, b: Uuid) -> bool {
 
 async fn send_move(
     user_id: Uuid,
-    action: Action,
+    mv: PlayerMove,
     move_tx: &mpsc::Sender<HumanMove>,
     socket: &mut WebSocket,
 ) {
@@ -424,7 +441,7 @@ async fn send_move(
     if move_tx
         .send(HumanMove {
             user_id,
-            action,
+            mv,
             respond: tx,
         })
         .await
