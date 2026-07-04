@@ -46,8 +46,8 @@
 	});
 
 	function onplay(card: CardT) {
-		if (card.kind === 'whot') game.beginWhot();
-		else game.playSuit(card);
+		// In no-stack a tap plays immediately; in stack mode it builds a selection.
+		game.tapCard(card);
 	}
 
 	function canPlay(card: CardT): boolean {
@@ -237,11 +237,26 @@
 		<section class="you-area">
 			<div class="you-head">
 				<span class="you-name">Your hand</span>
-				<button class="market-btn" disabled={!drawEnabled} onclick={() => game.draw()}>
-					{game.pendingPick > 0 ? `Pick ${game.pendingPick}` : 'Go to market'}
-				</button>
+				<div class="you-actions">
+					{#if game.selected.length > 0}
+						<button class="play-btn" disabled={!game.canConfirmSelection} onclick={() => game.playSelected()}>
+							Play {game.selected.length > 1 ? `${game.selected.length} cards` : 'card'}
+						</button>
+						<button class="clear-btn" onclick={() => game.clearSelection()} aria-label="Clear selection">✕</button>
+					{/if}
+					<button class="market-btn" disabled={!drawEnabled} onclick={() => game.draw()}>
+						{game.pendingPick > 0 ? `Pick ${game.pendingPick}` : 'Go to market'}
+					</button>
+				</div>
 			</div>
-			<Hand cards={game.myHand} {canPlay} enabled={game.canAct} {onplay} />
+			<Hand
+				cards={game.myHand}
+				{canPlay}
+				canTap={(c) => game.canTapCard(c)}
+				enabled={game.canAct}
+				isSelected={(c) => game.isSelected(c)}
+				{onplay}
+			/>
 		</section>
 
 		{#if showLog}
@@ -517,6 +532,40 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0 0.5rem;
+	}
+	.you-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.play-btn {
+		background: linear-gradient(135deg, #2f9e6f, #22795a);
+		color: #fff;
+		border: none;
+		padding: 0.5rem 1rem;
+		border-radius: 9px;
+		font-weight: 800;
+		cursor: pointer;
+		font-size: 0.85rem;
+		transition: filter 0.15s ease, transform 0.24s var(--spring);
+	}
+	.play-btn:not(:disabled):hover {
+		filter: brightness(1.08);
+		transform: translateY(-1px);
+	}
+	.play-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	.clear-btn {
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		color: rgba(255, 255, 255, 0.7);
+		width: 30px;
+		height: 30px;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 0.8rem;
 	}
 	.you-name {
 		font-weight: 700;

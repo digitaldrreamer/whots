@@ -70,6 +70,7 @@ export type WsAction =
 
 export type ClientEvent =
 	| { type: 'play_card'; action: WsAction }
+	| { type: 'play_stack'; value: number; shapes: Shape[] }
 	| { type: 'draw' }
 	| { type: 'chat_message'; text: string }
 	| { type: 'rtc_offer'; to: string; sdp: string }

@@ -82,6 +82,8 @@ export class GameController {
 	error = $state<string | null>(null);
 	log = $state<LogEntry[]>([]);
 	awaitingShape = $state(false);
+	// Cards tapped for a same-number stack (stack mode). One entry per card.
+	selected = $state<Card[]>([]);
 
 	// Animation / feedback signals (consumed by Board, Announce, FlightLayer, …)
 	announce = $state<AnnounceData | null>(null);
@@ -345,6 +347,8 @@ export class GameController {
 
 	#applyView(next: GameStateView): void {
 		const prev = this.#prev;
+		// New state = a move happened; drop any stale card selection.
+		this.selected = [];
 		if (this.screen !== 'playing' && next.phase === 'playing') {
 			this.screen = 'playing';
 			this.dealSeq += 1;
@@ -475,6 +479,76 @@ export class GameController {
 		this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: card.shape, value: card.value } });
 	}
 
+	// ── Stack selection (stack mode) ─────────────────────────────────────────────────
+
+	get selectedValue(): number | null {
+		const c = this.selected[0];
+		return c && c.kind === 'suit' ? c.value : null;
+	}
+
+	isSelected(card: Card): boolean {
+		return card.kind === 'suit' && this.selected.some((s) => s.kind === 'suit' && s.shape === card.shape && s.value === card.value);
+	}
+
+	/** Whether tapping this card does anything — a legal lead, or (stack mode) a
+	 * same-number card that can be added to the current selection. */
+	canTapCard(card: Card): boolean {
+		if (!this.canAct) return false;
+		if (card.kind === 'whot' || this.mode !== 'stack') return this.canPlayCard(card);
+		if (this.selected.length === 0) return this.canPlayCard(card);
+		return this.isSelected(card) || card.value === this.selectedValue;
+	}
+
+	get canConfirmSelection(): boolean {
+		return this.canAct && this.selected.some((c) => this.canPlayCard(c));
+	}
+
+	/** Primary hand interaction. In no-stack a tap plays immediately; in stack mode
+	 * a tap builds a same-number selection you confirm with playSelected(). */
+	tapCard(card: Card): void {
+		if (!this.canAct) return;
+		if (card.kind === 'whot') {
+			this.beginWhot();
+			return;
+		}
+		if (this.mode !== 'stack') {
+			this.playSuit(card);
+			return;
+		}
+		// Stack mode: build/toggle the same-number selection.
+		if (this.isSelected(card)) {
+			this.selected = this.selected.filter(
+				(s) => !(s.kind === 'suit' && card.kind === 'suit' && s.shape === card.shape && s.value === card.value)
+			);
+		} else if (this.selected.length === 0) {
+			if (!this.canPlayCard(card)) return; // the lead card must be legal
+			this.selected = [card];
+		} else if (card.value === this.selectedValue) {
+			this.selected = [...this.selected, card];
+		} else {
+			// different number → start a new selection with this card (if it can lead)
+			this.selected = this.canPlayCard(card) ? [card] : [];
+		}
+	}
+
+	playSelected(): void {
+		if (!this.canConfirmSelection) return;
+		const cards = this.selected.filter((c) => c.kind === 'suit') as Extract<Card, { kind: 'suit' }>[];
+		if (cards.length === 0) return;
+		const value = cards[0].value;
+		const shapes = cards.map((c) => c.shape);
+		this.selected = [];
+		if (shapes.length === 1) {
+			this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: shapes[0], value } });
+		} else {
+			this.#socket?.send({ type: 'play_stack', value, shapes });
+		}
+	}
+
+	clearSelection(): void {
+		this.selected = [];
+	}
+
 	beginWhot(): void {
 		if (!this.canAct) return;
 		if (!this.myHand.some((c) => c.kind === 'whot')) return;
@@ -514,6 +588,7 @@ export class GameController {
 		this.lastPlay = null;
 		this.lastDraw = null;
 		this.awaitingShape = false;
+		this.selected = [];
 		this.error = null;
 	}
 

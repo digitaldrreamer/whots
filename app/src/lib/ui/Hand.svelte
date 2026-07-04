@@ -5,11 +5,17 @@
 	let {
 		cards,
 		canPlay,
+		canTap,
+		isSelected,
 		enabled,
 		onplay
 	}: {
 		cards: CardT[];
+		/** Visual "this is a legal move" highlight. */
 		canPlay: (card: CardT) => boolean;
+		/** Whether a tap does anything (legal lead or same-number stack add). */
+		canTap?: (card: CardT) => boolean;
+		isSelected?: (card: CardT) => boolean;
 		enabled: boolean;
 		onplay: (card: CardT) => void;
 	} = $props();
@@ -69,13 +75,16 @@
 		<div class="hand" class:spread style:--n={sorted.length}>
 			{#each sorted as card, i (i + '-' + card.kind + '-' + (card.kind === 'suit' ? card.shape + card.value : 'w'))}
 				{@const playable = canPlay(card)}
+				{@const selected = isSelected?.(card) ?? false}
+				{@const tappable = canTap ? canTap(card) : playable}
 				<div class="slot" style:--i={i}>
 					<Card
 						{card}
 						size="lg"
 						selectable
-						disabled={!enabled || !playable}
-						muted={enabled && !playable}
+						{selected}
+						disabled={!enabled || !tappable}
+						muted={enabled && !playable && !selected}
 						onclick={() => onplay(card)}
 					/>
 				</div>
