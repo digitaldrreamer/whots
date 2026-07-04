@@ -26,3 +26,13 @@ export async function cancelGame(id: string): Promise<void> {
 	const res = await session.apiFetch(`/api/games/${id}`, { method: 'DELETE' });
 	if (!res.ok && res.status !== 404) throw new ApiError(res.status, await readError(res));
 }
+
+export async function acceptGame(id: string): Promise<void> {
+	const res = await session.apiFetch(`/api/games/${id}/accept`, { method: 'POST' });
+	if (!res.ok) throw new ApiError(res.status, await readError(res));
+}
+
+export async function declineGame(id: string): Promise<void> {
+	const res = await session.apiFetch(`/api/games/${id}/decline`, { method: 'POST' });
+	if (!res.ok) throw new ApiError(res.status, await readError(res));
+}

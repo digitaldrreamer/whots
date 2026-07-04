@@ -98,3 +98,31 @@ export interface Session {
 	user: PublicUser;
 	access_token: string;
 }
+
+// ── Social / multiplayer ────────────────────────────────────────────────────────
+export interface FriendRow {
+	id: string;
+	username: string;
+	display_name: string;
+	avatar_url: string | null;
+	since: string;
+}
+
+export interface Notification {
+	id: string;
+	user_id: string;
+	kind: 'game_invite' | 'game_accepted' | 'game_declined' | string;
+	payload: { game_id?: string; from_username?: string; [k: string]: unknown };
+	read: boolean;
+	created_at: string;
+}
+
+export interface MatchmakingJoinResponse {
+	matched: boolean;
+	game_id: string | null;
+}
+
+export interface MatchmakingStatus {
+	in_queue: boolean;
+	mode: string | null;
+}

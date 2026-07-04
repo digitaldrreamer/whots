@@ -270,6 +270,21 @@ export class GameController {
 		}
 	}
 
+	/** Join an existing game (matchmaking match or an accepted invite). */
+	joinExisting(gameId: string): void {
+		if (session.status !== 'authed' || !session.user) {
+			this.error = 'Sign in first.';
+			return;
+		}
+		this.#myUserId = session.user.id;
+		this.isTeeGame = false;
+		this.screen = 'connecting';
+		this.connection = 'connecting';
+		this.#resetFeedback();
+		this.#pushLog('system', 'Joining game…');
+		this.#connect(gameId);
+	}
+
 	#connect(gameId: string): void {
 		const token = session.accessToken;
 		if (!token) {

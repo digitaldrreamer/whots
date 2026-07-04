@@ -1,38 +1,21 @@
 <script lang="ts">
 	import type { Difficulty, GameMode } from '$lib/api/types';
 	import { game, DIFFICULTY_META } from './game.svelte.js';
-	import { session, ApiError } from '$lib/stores/session.svelte';
+	import { session } from '$lib/stores/session.svelte';
+	import { lobby } from '$lib/stores/lobby.svelte';
 	import Shape from './Shape.svelte';
 	import { SHAPE_COLORS } from './theme.js';
 	import Rules from './Rules.svelte';
+	import SignIn from './SignIn.svelte';
+	import Friends from './Friends.svelte';
 
 	let mode = $state<GameMode>('stack');
 	let difficulty = $state<Difficulty>('chief');
 	let opponents = $state(1);
 	let showRules = $state(false);
-
-	let username = $state('');
-	let authBusy = $state(false);
-	let authError = $state<string | null>(null);
+	let showFriends = $state(false);
 
 	const HERO_SHAPES = ['circle', 'triangle', 'cross', 'square', 'star'] as const;
-
-	async function signIn() {
-		const name = username.trim();
-		if (name.length < 3) {
-			authError = 'Pick a name with at least 3 characters.';
-			return;
-		}
-		authBusy = true;
-		authError = null;
-		try {
-			await session.guest(name);
-		} catch (e) {
-			authError = e instanceof ApiError ? e.message : 'Could not sign in.';
-		} finally {
-			authBusy = false;
-		}
-	}
 
 	function deal() {
 		game.start({ mode, difficulty, opponents });
@@ -55,26 +38,36 @@
 			<span class="label">Player</span>
 			{#if session.status === 'authed' && session.user}
 				<div class="who">
-					<span>Playing as <strong>{session.user.display_name}</strong></span>
+					<span>Playing as <strong>{session.user.display_name}</strong>{#if session.user.is_guest}<em> (guest)</em>{/if}</span>
 					<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
 				</div>
+			{:else if session.status === 'loading'}
+				<span class="hint">…</span>
 			{:else}
-				<div class="signin">
-					<input
-						class="name-input"
-						placeholder="Choose a username"
-						bind:value={username}
-						maxlength="30"
-						disabled={authBusy}
-						onkeydown={(e) => e.key === 'Enter' && signIn()}
-					/>
-					<button class="signin-btn" onclick={signIn} disabled={authBusy}>
-						{authBusy ? '…' : 'Play as guest'}
-					</button>
-				</div>
-				{#if authError}<span class="err">{authError}</span>{/if}
+				<SignIn />
 			{/if}
 		</div>
+
+		{#if session.status === 'authed'}
+			<div class="field">
+				<span class="label">Play online</span>
+				{#if lobby.inQueue}
+					<div class="queue">
+						<span class="spinner-sm"></span>
+						<span>Finding an opponent…</span>
+						<button class="linkbtn" onclick={() => lobby.cancelMatch()}>Cancel</button>
+					</div>
+				{:else}
+					<div class="online-row">
+						<button class="online" onclick={() => lobby.findMatch(mode)}>Find a match</button>
+						<button class="online ghost" onclick={() => (showFriends = true)}>
+							Friends{#if lobby.requests.length}<span class="badge">{lobby.requests.length}</span>{/if}
+						</button>
+					</div>
+				{/if}
+				{#if lobby.error}<span class="err">{lobby.error}</span>{/if}
+			</div>
+		{/if}
 
 		<div class="field">
 			<span class="label">Mode</span>
@@ -124,6 +117,10 @@
 
 {#if showRules}
 	<Rules onclose={() => (showRules = false)} />
+{/if}
+
+{#if showFriends}
+	<Friends {mode} onclose={() => (showFriends = false)} />
 {/if}
 
 <style>
@@ -206,6 +203,74 @@
 	.who strong {
 		color: var(--gold, #e8b84b);
 	}
+	.who em {
+		color: rgba(255, 255, 255, 0.4);
+		font-style: normal;
+		font-size: 0.82rem;
+	}
+	.online-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.5rem;
+	}
+	.online {
+		position: relative;
+		padding: 0.75rem;
+		border-radius: 12px;
+		border: none;
+		background: linear-gradient(135deg, #2f9e6f, #22795a);
+		color: #fff;
+		font-weight: 800;
+		font-size: 0.95rem;
+		cursor: pointer;
+		transition: filter 0.15s ease, transform 0.24s var(--spring);
+	}
+	.online:hover {
+		filter: brightness(1.08);
+		transform: translateY(-2px);
+	}
+	.online.ghost {
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+	}
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 18px;
+		height: 18px;
+		padding: 0 5px;
+		margin-left: 6px;
+		border-radius: 999px;
+		background: #ff5470;
+		color: #fff;
+		font-size: 0.72rem;
+		font-weight: 800;
+	}
+	.queue {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.75rem;
+		border-radius: 12px;
+		background: rgba(47, 158, 111, 0.12);
+		border: 1px solid rgba(47, 158, 111, 0.3);
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 0.9rem;
+	}
+	.spinner-sm {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		border: 2px solid rgba(255, 255, 255, 0.2);
+		border-top-color: #7fe0b3;
+		animation: spin 0.7s linear infinite;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
 	.linkbtn {
 		background: none;
 		border: none;
@@ -213,37 +278,6 @@
 		text-decoration: underline;
 		cursor: pointer;
 		font-size: 0.8rem;
-	}
-	.signin {
-		display: flex;
-		gap: 0.5rem;
-	}
-	.name-input {
-		flex: 1;
-		padding: 0.7rem 0.8rem;
-		border-radius: 10px;
-		border: 1.5px solid rgba(255, 255, 255, 0.14);
-		background: rgba(255, 255, 255, 0.04);
-		color: #fff;
-		font-size: 0.95rem;
-	}
-	.name-input:focus {
-		outline: none;
-		border-color: var(--gold, #e8b84b);
-	}
-	.signin-btn {
-		padding: 0.7rem 1rem;
-		border-radius: 10px;
-		border: none;
-		background: rgba(232, 184, 75, 0.9);
-		color: #1a1205;
-		font-weight: 700;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-	.signin-btn:disabled {
-		opacity: 0.6;
-		cursor: default;
 	}
 	.err {
 		font-size: 0.78rem;

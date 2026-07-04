@@ -3,6 +3,7 @@
 	import Menu from '$lib/ui/Menu.svelte';
 	import Board from '$lib/ui/Board.svelte';
 	import Result from '$lib/ui/Result.svelte';
+	import InvitePrompt from '$lib/ui/InvitePrompt.svelte';
 </script>
 
 <svelte:head>
@@ -27,6 +28,9 @@
 		<Result />
 	{/if}
 {/if}
+
+<!-- Global overlays: game invites + toasts, available on every screen -->
+<InvitePrompt />
 
 <style>
 	.connecting {
