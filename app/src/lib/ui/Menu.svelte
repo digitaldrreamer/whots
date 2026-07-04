@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { Difficulty, GameMode } from '$lib/game/types.js';
+	import type { Difficulty, GameMode } from '$lib/api/types';
 	import { game, DIFFICULTY_META } from './game.svelte.js';
+	import { session, ApiError } from '$lib/stores/session.svelte';
 	import Shape from './Shape.svelte';
 	import { SHAPE_COLORS } from './theme.js';
 	import Rules from './Rules.svelte';
@@ -10,7 +11,32 @@
 	let opponents = $state(1);
 	let showRules = $state(false);
 
+	let username = $state('');
+	let authBusy = $state(false);
+	let authError = $state<string | null>(null);
+
 	const HERO_SHAPES = ['circle', 'triangle', 'cross', 'square', 'star'] as const;
+
+	async function signIn() {
+		const name = username.trim();
+		if (name.length < 3) {
+			authError = 'Pick a name with at least 3 characters.';
+			return;
+		}
+		authBusy = true;
+		authError = null;
+		try {
+			await session.guest(name);
+		} catch (e) {
+			authError = e instanceof ApiError ? e.message : 'Could not sign in.';
+		} finally {
+			authBusy = false;
+		}
+	}
+
+	function deal() {
+		game.start({ mode, difficulty, opponents });
+	}
 </script>
 
 <div class="menu">
@@ -26,13 +52,38 @@
 
 	<div class="panel">
 		<div class="field">
+			<span class="label">Player</span>
+			{#if session.status === 'authed' && session.user}
+				<div class="who">
+					<span>Playing as <strong>{session.user.display_name}</strong></span>
+					<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
+				</div>
+			{:else}
+				<div class="signin">
+					<input
+						class="name-input"
+						placeholder="Choose a username"
+						bind:value={username}
+						maxlength="30"
+						disabled={authBusy}
+						onkeydown={(e) => e.key === 'Enter' && signIn()}
+					/>
+					<button class="signin-btn" onclick={signIn} disabled={authBusy}>
+						{authBusy ? '…' : 'Play as guest'}
+					</button>
+				</div>
+				{#if authError}<span class="err">{authError}</span>{/if}
+			{/if}
+		</div>
+
+		<div class="field">
 			<span class="label">Mode</span>
 			<div class="segmented">
 				<button class:on={mode === 'stack'} onclick={() => (mode = 'stack')}>
 					Stack
 					<small>Counter & pile on penalties</small>
 				</button>
-				<button class:on={mode === 'no-stack'} onclick={() => (mode = 'no-stack')}>
+				<button class:on={mode === 'no_stack'} onclick={() => (mode = 'no_stack')}>
 					No-stack
 					<small>Penalties resolve at once</small>
 				</button>
@@ -63,9 +114,10 @@
 			</div>
 		</div>
 
-		<button class="play" onclick={() => game.start({ mode, difficulty, opponents })}>
+		<button class="play" onclick={deal} disabled={session.status !== 'authed'}>
 			Deal me in
 		</button>
+		{#if game.error}<span class="err center">{game.error}</span>{/if}
 		<button class="rules-link" onclick={() => (showRules = true)}>How to play</button>
 	</div>
 </div>
@@ -141,6 +193,70 @@
 		font-size: 0.78rem;
 		color: rgba(255, 132, 155, 0.85);
 		font-style: italic;
+	}
+
+	.who {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		color: rgba(255, 255, 255, 0.8);
+		font-size: 0.92rem;
+	}
+	.who strong {
+		color: var(--gold, #e8b84b);
+	}
+	.linkbtn {
+		background: none;
+		border: none;
+		color: rgba(255, 255, 255, 0.5);
+		text-decoration: underline;
+		cursor: pointer;
+		font-size: 0.8rem;
+	}
+	.signin {
+		display: flex;
+		gap: 0.5rem;
+	}
+	.name-input {
+		flex: 1;
+		padding: 0.7rem 0.8rem;
+		border-radius: 10px;
+		border: 1.5px solid rgba(255, 255, 255, 0.14);
+		background: rgba(255, 255, 255, 0.04);
+		color: #fff;
+		font-size: 0.95rem;
+	}
+	.name-input:focus {
+		outline: none;
+		border-color: var(--gold, #e8b84b);
+	}
+	.signin-btn {
+		padding: 0.7rem 1rem;
+		border-radius: 10px;
+		border: none;
+		background: rgba(232, 184, 75, 0.9);
+		color: #1a1205;
+		font-weight: 700;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.signin-btn:disabled {
+		opacity: 0.6;
+		cursor: default;
+	}
+	.err {
+		font-size: 0.78rem;
+		color: #ff8fa3;
+	}
+	.err.center {
+		text-align: center;
+	}
+	.play:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+		filter: none;
+		transform: none;
 	}
 
 	.segmented {

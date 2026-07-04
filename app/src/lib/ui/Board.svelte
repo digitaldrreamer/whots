@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Card as CardT } from '$lib/game/types.js';
+	import type { Card as CardT } from '$lib/api/types';
 	import { scale } from 'svelte/transition';
 	import { backOut } from 'svelte/easing';
 	import { game } from './game.svelte.js';
@@ -18,33 +18,38 @@
 	type Rect = { x: number; y: number; w: number; h: number };
 	type Flight = { id: number; card?: CardT; faceDown?: boolean; from: Rect; to: Rect };
 
-	const gs = $derived(game.state);
-	const opponents = $derived(gs ? gs.players.slice(1) : []);
+	const view = $derived(game.view);
 
 	// The face card to show on the discard pile + any called shape.
 	const topAsCard = $derived<CardT | null>(
-		gs ? (gs.topCard.kind === 'whot' ? { kind: 'whot', value: 20 } : gs.topCard) : null
+		view ? (view.discard_top.kind === 'whot' ? { kind: 'whot' } : view.discard_top) : null
 	);
-	const calledShape = $derived(gs && gs.topCard.kind === 'whot' ? gs.topCard.calledShape : null);
+	const calledShape = $derived(
+		view && view.discard_top.kind === 'whot' ? view.discard_top.called_shape : null
+	);
+	// Re-key the slam animation whenever the top card changes.
+	const topKey = $derived(view ? JSON.stringify(view.discard_top) : '');
 
-	const drawEnabled = $derived(
-		game.isHumanTurn && (game.pendingPick > 0 || game.validHumanCards.length === 0)
-	);
+	const drawEnabled = $derived(game.mustDraw || (game.isMyTurn && game.pendingPick > 0));
 
 	const status = $derived.by(() => {
-		if (!gs) return '';
-		if (game.busy && game.thinkingName) return `${game.thinkingName} is thinking…`;
-		if (!game.isHumanTurn) return '';
+		if (!view) return '';
+		if (game.thinkingName) return `${game.thinkingName} is thinking…`;
+		if (!game.isMyTurn) return '';
 		if (game.pendingPick > 0) {
 			return `You're hit with Pick ${game.pendingPick} — counter with a 2 or 5, or go to market.`;
 		}
-		if (game.validHumanCards.length === 0) return 'No playable card — go to market.';
+		if (game.playableCards.length === 0) return 'No playable card — go to market.';
 		return 'Your turn — play a card that matches by shape or number.';
 	});
 
 	function onplay(card: CardT) {
 		if (card.kind === 'whot') game.beginWhot();
 		else game.playSuit(card);
+	}
+
+	function canPlay(card: CardT): boolean {
+		return game.canPlayCard(card);
 	}
 
 	let showLog = $state(false);
@@ -93,7 +98,8 @@
 		seenPlay = lp.id;
 		requestAnimationFrame(() => {
 			const to = rectOf('.discard .top-wrap');
-			const from = lp.seat === 0 ? rectOf('.you-area') : rectOf(`[data-seat="${lp.seat}"]`);
+			const from =
+				lp.seat === game.mySeatIndex ? rectOf('.you-area') : rectOf(`[data-seat="${lp.seat}"]`);
 			if (from && to) flights = [...flights, { id: lp.id, card: lp.card, from, to }];
 		});
 	});
@@ -105,7 +111,8 @@
 		seenDraw = ld.id;
 		requestAnimationFrame(() => {
 			const from = rectOf('.stock .stock-btn');
-			const to = ld.seat === 0 ? rectOf('.you-area') : rectOf(`[data-seat="${ld.seat}"]`);
+			const to =
+				ld.seat === game.mySeatIndex ? rectOf('.you-area') : rectOf(`[data-seat="${ld.seat}"]`);
 			if (from && to) flights = [...flights, { id: ld.id, faceDown: true, from, to }];
 		});
 	});
@@ -124,12 +131,12 @@
 	});
 </script>
 
-{#if gs}
+{#if view}
 	<div class="board" class:shaking class:dealing>
 		<header class="topbar">
 			<button class="ghost" onclick={() => game.toMenu()}>← Leave</button>
 			<div class="mode-chip">
-				<span class="mode">{gs.mode === 'stack' ? 'Stack mode' : 'No-stack'}</span>
+				<span class="mode">{view.mode === 'stack' ? 'Stack mode' : 'No-stack'}</span>
 				{#if !game.isTeeGame}<span class="diff">{game.difficultyLabel}</span>{/if}
 				{#if game.isTeeGame}<span class="diff boss">Tee-Noble</span>{/if}
 			</div>
@@ -150,12 +157,14 @@
 		</header>
 
 		<section class="opponents">
-			{#each opponents as opp, i (opp.id)}
+			{#each game.opponents as opp (opp.index)}
 				<OpponentSeat
-					player={opp}
-					seatIndex={i + 1}
-					active={gs.currentPlayerIndex === i + 1 && gs.phase === 'playing'}
-					thinking={game.busy && game.thinkingName === opp.name}
+					name={opp.name}
+					handSize={opp.handSize}
+					seatIndex={opp.index}
+					isTee={opp.isTee}
+					active={opp.isCurrent}
+					thinking={game.thinkingName === opp.name && opp.isCurrent}
 				/>
 			{/each}
 		</section>
@@ -170,7 +179,7 @@
 				>
 					<Card faceDown size="lg" />
 				</button>
-				<span class="pile-label">Market · {gs.stockPile.length}</span>
+				<span class="pile-label">Market · {view.stock_size}</span>
 			</div>
 
 			<div class="pile discard">
@@ -183,7 +192,7 @@
 				{/if}
 				{#if topAsCard}
 					<div class="top-wrap">
-						{#key gs.discardPile.length}
+						{#key topKey}
 							<div
 								class="slam"
 								in:scale={{ start: 1.35, opacity: 0.4, duration: 220, easing: backOut }}
@@ -203,7 +212,7 @@
 			</div>
 		</section>
 
-		<div class="status" class:you={game.isHumanTurn} aria-live="polite">{status}</div>
+		<div class="status" class:you={game.isMyTurn} aria-live="polite">{status}</div>
 
 		<section class="you-area">
 			<div class="you-head">
@@ -212,12 +221,7 @@
 					{game.pendingPick > 0 ? `Pick ${game.pendingPick}` : 'Go to market'}
 				</button>
 			</div>
-			<Hand
-				cards={game.human?.hand ?? []}
-				canPlay={game.canPlayCard}
-				enabled={game.isHumanTurn}
-				{onplay}
-			/>
+			<Hand cards={game.myHand} {canPlay} enabled={game.isMyTurn} {onplay} />
 		</section>
 
 		{#if showLog}

@@ -1,7 +1,8 @@
 // Wire types mirroring the Rust backend (serde representations).
 // Keep in sync with server/src/game/types.ts and server/src/routes/{auth,games,ws}.rs.
 
-export type Shape = 'circle' | 'triangle' | 'cross' | 'square' | 'star';
+export const SHAPES = ['circle', 'triangle', 'cross', 'square', 'star'] as const;
+export type Shape = (typeof SHAPES)[number];
 
 export type Card = { kind: 'suit'; shape: Shape; value: number } | { kind: 'whot' };
 

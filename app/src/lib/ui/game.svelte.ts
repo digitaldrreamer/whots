@@ -32,6 +32,7 @@ export type OpponentView = {
 	name: string;
 	handSize: number;
 	isAi: boolean;
+	isTee: boolean;
 	isCurrent: boolean;
 };
 
@@ -165,6 +166,7 @@ export class GameController {
 				name: seat.name,
 				handSize: seat.hand_size,
 				isAi: seat.kind.kind === 'ai',
+				isTee: seat.kind.kind === 'ai' && seat.kind.difficulty === 'tee_noble',
 				isCurrent: idx === v.current_seat_index && v.phase === 'playing'
 			});
 		}

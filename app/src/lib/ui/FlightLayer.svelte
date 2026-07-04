@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Card as CardT } from '$lib/game/types.js';
+	import type { Card as CardT } from '$lib/api/types';
 	import Card from './Card.svelte';
 
 	type Rect = { x: number; y: number; w: number; h: number };
