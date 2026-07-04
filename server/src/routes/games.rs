@@ -152,6 +152,7 @@ pub async fn create(
                 name: display_names.get(user_id).cloned().unwrap_or_default(),
                 kind: SeatKind::Human { user_id: *user_id },
                 hand: vec![],
+                owed_draws: 0,
             },
             SeatSpec::Ai { difficulty, name } => Seat {
                 name: name.clone(),
@@ -159,6 +160,7 @@ pub async fn create(
                     difficulty: *difficulty,
                 },
                 hand: vec![],
+                owed_draws: 0,
             },
         })
         .collect();

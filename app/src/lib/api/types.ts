@@ -23,7 +23,9 @@ export type Difficulty =
 
 export type GamePhase = 'playing' | 'finished';
 
-export type PendingEffect = { kind: 'pick'; total: number; card: number } | { kind: 'skip' };
+// `count` = number of penalty cards owed; `card` = the number that started it
+// (2 or 5). Cards actually drawn = count * (card === 5 ? 3 : 2).
+export type PendingEffect = { kind: 'pick'; count: number; card: number } | { kind: 'skip' };
 
 export type SeatKind =
 	| { kind: 'human'; user_id: string }
@@ -34,6 +36,7 @@ export interface SeatView {
 	kind: SeatKind;
 	hand: Card[]; // populated only for the viewing player
 	hand_size: number; // always the true count
+	owed_draws: number; // General Market cards this seat still has to draw
 }
 
 export interface GameStateView {

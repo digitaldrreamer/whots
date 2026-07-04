@@ -58,6 +58,7 @@ pub async fn join(
                     user_id: claims.sub,
                 },
                 hand: vec![],
+                owed_draws: 0,
             },
             Seat {
                 name: opp_name,
@@ -65,6 +66,7 @@ pub async fn join(
                     user_id: opponent_id,
                 },
                 hand: vec![],
+                owed_draws: 0,
             },
         ];
         let game_state = create_game(seats, body.mode);

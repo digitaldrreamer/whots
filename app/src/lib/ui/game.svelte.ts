@@ -34,6 +34,7 @@ export type OpponentView = {
 	isAi: boolean;
 	isTee: boolean;
 	isCurrent: boolean;
+	owed: number; // General Market cards this opponent still owes the market
 };
 
 const OPPONENT_NAMES = ['Ada', 'Emeka', 'Ngozi', 'Bisi', 'Tunde'];
@@ -161,9 +162,23 @@ export class GameController {
 		return this.view?.mode ?? this.config.mode;
 	}
 
+	/** Cards the player under the pending penalty would draw = count × per-card
+	 * (a 2 = 2 cards each, a 5 = 3 cards each). 0 when no penalty is pending. */
 	get pendingPick(): number {
 		const p = this.view?.pending_effect;
-		return p && p.kind === 'pick' ? p.total : 0;
+		if (!p || p.kind !== 'pick') return 0;
+		return p.count * (p.card === 5 ? 3 : 2);
+	}
+
+	/** The number (2 or 5) that started the pending penalty, or 0 if none. */
+	get pendingCard(): number {
+		const p = this.view?.pending_effect;
+		return p && p.kind === 'pick' ? p.card : 0;
+	}
+
+	/** General Market cards *I* still have to go and draw myself (0 if none). */
+	get myOwedDraws(): number {
+		return this.mySeat?.owed_draws ?? 0;
 	}
 
 	/** Opponent seats in turn order starting after me (for seating them around the table). */
@@ -181,7 +196,8 @@ export class GameController {
 				handSize: seat.hand_size,
 				isAi: seat.kind.kind === 'ai',
 				isTee: seat.kind.kind === 'ai' && seat.kind.difficulty === 'tee_noble',
-				isCurrent: idx === v.current_seat_index && v.phase === 'playing'
+				isCurrent: idx === v.current_seat_index && v.phase === 'playing',
+				owed: seat.owed_draws
 			});
 		}
 		return out;
@@ -198,6 +214,8 @@ export class GameController {
 	canPlayCard(card: Card): boolean {
 		const v = this.view;
 		if (!v || !this.isMyTurn) return false;
+		// A General Market obligation must be settled first — you can only draw.
+		if (this.myOwedDraws > 0) return false;
 		return canPlay(card, v.discard_top, v.pending_effect, v.mode);
 	}
 
@@ -206,7 +224,26 @@ export class GameController {
 	}
 
 	get mustDraw(): boolean {
-		return this.isMyTurn && this.playableCards.length === 0;
+		return this.isMyTurn && (this.myOwedDraws > 0 || this.playableCards.length === 0);
+	}
+
+	/** Whose turn it is / who the table is waiting on — surfaced in the UI so it's
+	 * always clear who has to act (especially while waiting on a General Market draw). */
+	get statusLine(): string {
+		const v = this.view;
+		if (!v || v.phase !== 'playing') return '';
+		const cur = v.current_seat_index;
+		const seat = v.seats[cur];
+		const owed = seat?.owed_draws ?? 0;
+		if (cur === this.mySeatIndex) {
+			if (owed > 0) return `Your turn — pick ${owed} from market`;
+			if (this.pendingPick > 0) return `Your turn — counter or pick ${this.pendingPick}`;
+			if (this.mustDraw) return 'Your turn — go to market';
+			return 'Your turn';
+		}
+		const name = seat?.name ?? 'Opponent';
+		if (owed > 0) return `Waiting for ${name} to pick from market`;
+		return `${name}'s turn`;
 	}
 
 	get winnerIndex(): number | null {

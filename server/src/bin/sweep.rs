@@ -27,8 +27,8 @@ const LADDER: &[(Difficulty, &str)] = &[
 fn play(pa: &Policy, pb: &Policy, a_seat: usize, seed: u64) -> Option<bool> {
     let mut rng = StdRng::seed_from_u64(seed);
     let seats = vec![
-        Seat { name: "0".into(), kind: SeatKind::Ai { difficulty: Difficulty::Pikin }, hand: vec![] },
-        Seat { name: "1".into(), kind: SeatKind::Ai { difficulty: Difficulty::Pikin }, hand: vec![] },
+        Seat { name: "0".into(), kind: SeatKind::Ai { difficulty: Difficulty::Pikin }, hand: vec![], owed_draws: 0 },
+        Seat { name: "1".into(), kind: SeatKind::Ai { difficulty: Difficulty::Pikin }, hand: vec![], owed_draws: 0 },
     ];
     let mut state = create_game(seats, GameMode::Stack);
     let mut turns = 0;

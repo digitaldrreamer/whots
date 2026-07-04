@@ -51,6 +51,7 @@ fn seat(d: Difficulty) -> Seat {
         name: name(d).into(),
         kind: SeatKind::Ai { difficulty: d },
         hand: vec![],
+        owed_draws: 0,
     }
 }
 
@@ -255,11 +256,28 @@ fn matrix(n: usize) {
 /// Runs `runs` timed calls of 10,000 iterations each, reports averages.
 fn bench(runs: usize) {
     use std::time::Instant;
+    use whots_server::game::ai::context::build_candidates;
     let mut rng = StdRng::seed_from_u64(0xBEEFCAFE);
-    let state = whots_server::game::engine::create_game(
+    let mut state = whots_server::game::engine::create_game(
         vec![seat(Difficulty::TeeNoble), seat(Difficulty::Pikin)],
         whots_server::game::types::GameMode::Stack,
     );
+    // A fresh deal is often a forced move (single legal play / must-draw), which
+    // the search returns instantly — useless for timing. Advance to a genuine
+    // branching decision (>1 candidate) before we start the clock.
+    let mut guard = 0;
+    while guard < 80 && state.phase == GamePhase::Playing {
+        let s = state.current_seat_index;
+        if build_candidates(&state, s).len() > 1 {
+            break;
+        }
+        let mv = act(&state, s, &policy_for(Difficulty::Pikin), &mut rng);
+        if apply_ai_move(&mut state, s, mv).is_err() {
+            break;
+        }
+        guard += 1;
+    }
+    let bench_seat = state.current_seat_index;
     const ITERS: u32 = 10_000;
     let policy = Policy::Ismcts {
         budget: Budget::Iterations(ITERS),
@@ -269,11 +287,14 @@ fn bench(runs: usize) {
         endgame_samples: 0,
     };
 
-    println!("Timing {ITERS} ISMCTS iterations × {runs} runs on this hardware...\n");
+    println!(
+        "Timing {ITERS} ISMCTS iterations × {runs} runs (seat {bench_seat}, {} candidates)...\n",
+        build_candidates(&state, bench_seat).len()
+    );
     let mut times_ms = Vec::with_capacity(runs);
     for _ in 0..runs {
         let t = Instant::now();
-        let _ = act(&state, 0, &policy, &mut rng);
+        let _ = act(&state, bench_seat, &policy, &mut rng);
         times_ms.push(t.elapsed().as_secs_f64() * 1000.0);
     }
     times_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());

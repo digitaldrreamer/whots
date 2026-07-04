@@ -37,16 +37,25 @@
 	const status = $derived.by(() => {
 		if (!view) return '';
 		if (game.thinkingName) return `${game.thinkingName} is thinking…`;
-		if (!game.isMyTurn) return '';
+		// Not my turn: say whose it is / who we're waiting on (statusLine also
+		// calls out a player who still owes a General Market draw).
+		if (!game.isMyTurn) return game.statusLine;
+		if (game.myOwedDraws > 0) {
+			return `General Market — go to market and pick ${game.myOwedDraws} card${game.myOwedDraws > 1 ? 's' : ''} to continue.`;
+		}
 		if (game.selected.length > 0) {
 			return `Stacking ${game.selected.length} — tap more of the same number, or press Play.`;
 		}
 		if (game.pendingPick > 0) {
-			return `You're hit with Pick ${game.pendingPick} — counter with a 2 or 5, or go to market.`;
+			return `You're hit with Pick ${game.pendingPick} — counter with a ${game.pendingCard}, or go to market.`;
 		}
 		if (game.playableCards.length === 0) return 'No playable card — go to market.';
 		return 'Your turn — play a card that matches by shape or number.';
 	});
+
+	// Cards the market button will make you take: an owed General Market draw
+	// first, otherwise the pending penalty.
+	const marketOwed = $derived(game.myOwedDraws > 0 ? game.myOwedDraws : game.pendingPick);
 
 	function onplay(card: CardT) {
 		// In no-stack a tap plays immediately; in stack mode it builds a selection.
@@ -187,6 +196,7 @@
 					seatIndex={opp.index}
 					isTee={opp.isTee}
 					active={opp.isCurrent}
+					owed={opp.owed}
 					thinking={game.thinkingName === opp.name && opp.isCurrent}
 				/>
 			{/each}
@@ -247,8 +257,8 @@
 						</button>
 						<button class="clear-btn" onclick={() => game.clearSelection()} aria-label="Clear selection">✕</button>
 					{/if}
-					<button class="market-btn" disabled={!drawEnabled} onclick={() => game.draw()}>
-						{game.pendingPick > 0 ? `Pick ${game.pendingPick}` : 'Go to market'}
+					<button class="market-btn" class:owed={game.myOwedDraws > 0} disabled={!drawEnabled} onclick={() => game.draw()}>
+						{marketOwed > 0 ? `Pick ${marketOwed}` : 'Go to market'}
 					</button>
 				</div>
 			</div>
@@ -587,6 +597,20 @@
 		transition:
 			transform 0.24s var(--spring),
 			filter 0.15s ease;
+	}
+	.market-btn.owed:not(:disabled) {
+		animation: owedNudge 1.1s ease-in-out infinite;
+	}
+	@keyframes owedNudge {
+		50% {
+			filter: brightness(1.18);
+			transform: translateY(-2px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.market-btn.owed:not(:disabled) {
+			animation: none;
+		}
 	}
 	.market-btn:not(:disabled):hover {
 		filter: brightness(1.08);

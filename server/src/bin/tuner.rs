@@ -232,11 +232,13 @@ fn simulate_one(
             name: difficulty_name(first).to_string(),
             kind: SeatKind::Ai { difficulty: first },
             hand: vec![],
+            owed_draws: 0,
         },
         Seat {
             name: difficulty_name(second).to_string(),
             kind: SeatKind::Ai { difficulty: second },
             hand: vec![],
+            owed_draws: 0,
         },
     ];
     let mut state = create_game(seats, GameMode::Stack);

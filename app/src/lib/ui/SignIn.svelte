@@ -23,9 +23,33 @@
 		}
 	}
 
-	const guest = () => run(() => session.guest(username.trim()));
+	// Mirror the server's rule (3–30 chars, letters/digits/_/-) so the user gets
+	// instant feedback instead of a round-trip 400.
+	const USERNAME_RE = /^[a-zA-Z0-9_-]+$/;
+	function usernameError(name: string): string | null {
+		if (name.length < 3) return 'Username must be at least 3 characters.';
+		if (name.length > 30) return 'Username must be at most 30 characters.';
+		if (!USERNAME_RE.test(name)) return 'Use only letters, numbers, underscores or hyphens.';
+		return null;
+	}
+
+	const guest = () => {
+		const err = usernameError(username.trim());
+		if (err) {
+			error = err;
+			return;
+		}
+		return run(() => session.guest(username.trim()));
+	};
 	const login = () => run(() => session.login(identifier.trim(), password));
-	const register = () => run(() => session.register(username.trim(), email.trim(), password));
+	const register = () => {
+		const err = usernameError(username.trim());
+		if (err) {
+			error = err;
+			return;
+		}
+		return run(() => session.register(username.trim(), email.trim(), password));
+	};
 </script>
 
 <div class="signin">
@@ -40,6 +64,7 @@
 			<input
 				placeholder="Choose a username"
 				bind:value={username}
+				minlength="3"
 				maxlength="30"
 				disabled={busy}
 				onkeydown={(e) => e.key === 'Enter' && guest()}
@@ -53,7 +78,7 @@
 			onkeydown={(e) => e.key === 'Enter' && login()} />
 		<button class="go" onclick={login} disabled={busy}>{busy ? '…' : 'Log in'}</button>
 	{:else}
-		<input placeholder="Username" bind:value={username} maxlength="30" disabled={busy} />
+		<input placeholder="Username" bind:value={username} minlength="3" maxlength="30" disabled={busy} />
 		<input type="email" placeholder="Email" bind:value={email} disabled={busy} />
 		<input type="password" placeholder="Password (min 8)" bind:value={password} disabled={busy}
 			onkeydown={(e) => e.key === 'Enter' && register()} />

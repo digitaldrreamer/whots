@@ -7,7 +7,8 @@
 		active,
 		thinking,
 		seatIndex,
-		isTee = false
+		isTee = false,
+		owed = 0
 	}: {
 		name: string;
 		handSize: number;
@@ -15,6 +16,7 @@
 		thinking: boolean;
 		seatIndex: number;
 		isTee?: boolean;
+		owed?: number;
 	} = $props();
 
 	const count = $derived(handSize);
@@ -39,6 +41,9 @@
 		</span>
 		<span class="count">{count} card{count === 1 ? '' : 's'}</span>
 	</div>
+	{#if owed > 0}
+		<div class="owed" title="Must draw from market">🛒 picking {owed}</div>
+	{/if}
 	{#if thinking}
 		<div class="thinking">
 			<span class="dot"></span><span class="dot"></span><span class="dot"></span>
@@ -104,6 +109,26 @@
 	.count {
 		font-size: 0.78rem;
 		color: rgba(255, 255, 255, 0.6);
+	}
+	.owed {
+		font-size: 0.7rem;
+		font-weight: 800;
+		color: #1a1205;
+		background: var(--gold, #e8b84b);
+		padding: 0.1rem 0.5rem;
+		border-radius: 999px;
+		white-space: nowrap;
+		animation: owedPulse 1.1s ease-in-out infinite;
+	}
+	@keyframes owedPulse {
+		50% {
+			opacity: 0.6;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.owed {
+			animation: none;
+		}
 	}
 	.thinking {
 		position: absolute;

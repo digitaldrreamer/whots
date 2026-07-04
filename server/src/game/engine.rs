@@ -25,6 +25,8 @@ pub enum GameError {
     InvalidMove,
     #[error("player has valid moves and must play a card")]
     MustPlay,
+    #[error("player owes a market draw and must draw before playing")]
+    MustDraw,
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -48,80 +50,23 @@ fn reshuffle_discard(state: &mut GameState) {
     state.discard_pile = vec![keep];
 }
 
-fn compute_pending(
-    effect: Option<ActionEffect>,
-    current: Option<PendingEffect>,
-) -> Option<PendingEffect> {
-    match effect {
-        None => current,
-        Some(ActionEffect::PickTwo) => {
-            // Number-locked: only piles onto an existing 2-chain (can_play blocks
-            // playing a 2 onto a 5-penalty in the first place).
-            let base = match current {
-                Some(PendingEffect::Pick { total, card: 2 }) => total,
-                _ => 0,
-            };
-            Some(PendingEffect::Pick {
-                total: base + 2,
-                card: 2,
-            })
-        }
-        Some(ActionEffect::PickThree) => {
-            let base = match current {
-                Some(PendingEffect::Pick { total, card: 5 }) => total,
-                _ => 0,
-            };
-            Some(PendingEffect::Pick {
-                total: base + 3,
-                card: 5,
-            })
-        }
-        // Hold On and General Market are pure "play again" — no pending effect
-        // carried into the follow-up turn.
-        Some(
-            ActionEffect::HoldOn
-            | ActionEffect::Suspension
-            | ActionEffect::GeneralMarket
-            | ActionEffect::Whot { .. },
-        ) => None,
+/// How many cards a single pending penalty card makes you draw: a 2 = 2 cards,
+/// a 5 = 3 cards. So a `Pick { count, card }` costs `count * per_card_draw(card)`.
+fn per_card_draw(card: u8) -> u32 {
+    match card {
+        5 => 3,
+        _ => 2,
     }
 }
 
-fn resolve_next_turn(state: &mut GameState, effect: Option<ActionEffect>) {
-    if state.winner_index.is_some() {
-        return;
-    }
-    match effect {
-        Some(ActionEffect::HoldOn) => {
-            // "Play again" — keep the same seat. Stackable (another 1 replays).
-        }
-        Some(ActionEffect::Suspension) => {
-            state.pending_effect = None;
-            state.current_seat_index = advance(state, 2);
-        }
-        Some(ActionEffect::GeneralMarket) => {
-            // Every other player draws one card, then the player plays again
-            // (same "play again" flow as Hold On — keep the same seat).
-            reshuffle_discard(state);
-            let current = state.current_seat_index;
-            let n = state.seats.len();
-            for i in 0..n {
-                if i == current {
-                    continue;
-                }
-                if let Some(card) = state.stock_pile.pop() {
-                    state.seats[i].hand.push(card);
-                }
-            }
-            state.pending_effect = None;
-        }
-        _ => {
-            // pick_two, pick_three, whot, non-action, or end of hold_on chain
-            let skipping = matches!(state.pending_effect, Some(PendingEffect::Skip));
-            if skipping {
-                state.pending_effect = None;
-            }
-            state.current_seat_index = advance(state, if skipping { 2 } else { 1 });
+/// Draw `count` cards from stock into a seat's hand, reshuffling the discard
+/// back into stock as needed. Stops early only if both piles are exhausted.
+fn draw_cards(state: &mut GameState, seat_index: usize, count: usize) {
+    for _ in 0..count {
+        reshuffle_discard(state);
+        match state.stock_pile.pop() {
+            Some(card) => state.seats[seat_index].hand.push(card),
+            None => break,
         }
     }
 }
@@ -175,45 +120,12 @@ pub fn create_game(seats: Vec<Seat>, mode: GameMode) -> GameState {
     }
 }
 
-fn apply_suit_card(
-    state: &mut GameState,
-    seat_index: usize,
-    shape: Shape,
-    value: u8,
-) -> Result<(), GameError> {
-    let card = Card::Suit { shape, value };
-    let pos = state.seats[seat_index]
-        .hand
-        .iter()
-        .position(|&c| c == card)
-        .ok_or(GameError::CardNotInHand)?;
-
-    if !can_play(card, state.top_card, &state.pending_effect, state.mode) {
-        return Err(GameError::InvalidMove);
-    }
-
-    let effect = suit_card_effect(value);
-    let new_pending = compute_pending(effect, state.pending_effect.clone());
-
-    state.seats[seat_index].hand.remove(pos);
-    let won = state.seats[seat_index].hand.is_empty();
-    state.discard_pile.push(card);
-    state.top_card = TopCard::Suit { shape, value };
-    state.pending_effect = new_pending;
-
-    if won {
-        state.phase = GamePhase::Finished;
-        state.winner_index = Some(seat_index);
-    }
-
-    resolve_next_turn(state, effect);
-    Ok(())
-}
-
-/// Play several cards of the **same number** in one turn (stack mode only).
-/// `shapes` lists the cards (one entry per card); all share `value`. Effects
-/// accumulate: n 2s = +2n, n 5s = +3n, n 8s = skip n, n 14s = others draw n each,
-/// n 1s = play again. A single-card list behaves like `apply_suit_card`.
+/// Play one or more cards of the **same number** in one turn. A single card is
+/// legal in either mode; playing 2+ at once (a stack) is a stack-mode feature.
+/// `shapes` lists the cards (one entry per card); all share `value`. Playing m
+/// penalty cards against a pending penalty of the same number CANCELS m of them
+/// (see `resolve_play`). Otherwise: m 8s = skip m, m 14s = each other owes m
+/// self-draws, m 1s = play again, m 2s/5s = start a penalty of that many.
 pub fn apply_stack(
     state: &mut GameState,
     seat_index: usize,
@@ -226,8 +138,13 @@ pub fn apply_stack(
     if state.current_seat_index != seat_index {
         return Err(GameError::NotYourTurn);
     }
+    // A General Market obligation must be settled first: you draw your owed
+    // cards yourself before you may play anything.
+    if state.seats[seat_index].owed_draws > 0 {
+        return Err(GameError::MustDraw);
+    }
     // Stacking multiple cards is a stack-mode feature. (A single card is fine in
-    // either mode, but single plays come through apply_suit_card.)
+    // either mode; single plays route here with a one-entry `shapes`.)
     if shapes.len() != 1 && state.mode != GameMode::Stack {
         return Err(GameError::InvalidMove);
     }
@@ -276,79 +193,78 @@ pub fn apply_stack(
 
     let n = cards.len() as u32;
     let effect = suit_card_effect(value);
-    state.pending_effect = compute_pending_stack(effect, state.pending_effect.clone(), n);
 
     let won = state.seats[seat_index].hand.is_empty();
     if won {
         state.phase = GamePhase::Finished;
         state.winner_index = Some(seat_index);
+        return Ok(());
     }
 
-    resolve_stack_turn(state, effect, n);
+    resolve_play(state, value, n, effect);
     Ok(())
 }
 
-fn compute_pending_stack(
-    effect: Option<ActionEffect>,
-    current: Option<PendingEffect>,
-    n: u32,
-) -> Option<PendingEffect> {
-    match effect {
-        Some(ActionEffect::PickTwo) => {
-            let base = match current {
-                Some(PendingEffect::Pick { total, card: 2 }) => total,
-                _ => 0,
-            };
-            Some(PendingEffect::Pick {
-                total: base + 2 * n,
-                card: 2,
-            })
-        }
-        Some(ActionEffect::PickThree) => {
-            let base = match current {
-                Some(PendingEffect::Pick { total, card: 5 }) => total,
-                _ => 0,
-            };
-            Some(PendingEffect::Pick {
-                total: base + 3 * n,
-                card: 5,
-            })
-        }
+/// Apply the pending-effect and turn-advance consequences of playing `n` cards
+/// of `value` (with card-effect `effect`). Called after the cards are on the
+/// pile and a win has been ruled out.
+fn resolve_play(state: &mut GameState, value: u8, n: u32, effect: Option<ActionEffect>) {
+    // Is this a counter to a pending penalty of the *same* number? (can_play
+    // guarantees that if a Pick is pending, the played value matches its card.)
+    let pending_count = match &state.pending_effect {
+        Some(PendingEffect::Pick { count, card }) if *card == value => Some(*count),
         _ => None,
-    }
-}
+    };
 
-fn resolve_stack_turn(state: &mut GameState, effect: Option<ActionEffect>, n: u32) {
-    if state.winner_index.is_some() {
-        return;
-    }
     match effect {
-        // Play again — keep the seat (stackable via chaining is moot here, the
-        // whole same-number group was one play).
-        Some(ActionEffect::HoldOn) => {}
-        Some(ActionEffect::GeneralMarket) => {
-            reshuffle_discard(state);
-            let current = state.current_seat_index;
-            let seats = state.seats.len();
-            for i in 0..seats {
-                if i == current {
-                    continue;
+        Some(ActionEffect::PickTwo) | Some(ActionEffect::PickThree) => {
+            if let Some(owed) = pending_count {
+                // Counter: cancel card-for-card against the incoming penalty.
+                if n >= owed {
+                    let excess = n - owed;
+                    state.pending_effect = (excess > 0).then_some(PendingEffect::Pick {
+                        count: excess,
+                        card: value,
+                    });
+                    // Equal cancels to nothing; excess passes to the next player.
+                    state.current_seat_index = advance(state, 1);
+                } else {
+                    // Under-counter: you cancelled `n`, but still owe `owed - n`.
+                    // It stays your turn — you must now draw the remainder (or, if
+                    // you somehow hold more, counter again). No advance.
+                    state.pending_effect = Some(PendingEffect::Pick {
+                        count: owed - n,
+                        card: value,
+                    });
                 }
-                for _ in 0..n {
-                    if let Some(card) = state.stock_pile.pop() {
-                        state.seats[i].hand.push(card);
-                    }
-                }
+            } else {
+                // Fresh penalty for the next player.
+                state.pending_effect = Some(PendingEffect::Pick { count: n, card: value });
+                state.current_seat_index = advance(state, 1);
             }
+        }
+        Some(ActionEffect::HoldOn) => {
+            // Play again — keep the seat. Stackable (another 1 replays).
             state.pending_effect = None;
         }
-        // Skip n players.
         Some(ActionEffect::Suspension) => {
             state.pending_effect = None;
             state.current_seat_index = advance(state, 1 + n as usize);
         }
-        // Pick-two / pick-three (penalty passes on) or plain cards: next player.
-        _ => {
+        Some(ActionEffect::GeneralMarket) => {
+            // Every *other* player owes n self-draws, settled on their own turn.
+            // We never draw for them; the game waits until they go to market.
+            state.pending_effect = None;
+            let current = state.current_seat_index;
+            for i in 0..state.seats.len() {
+                if i != current {
+                    state.seats[i].owed_draws += n;
+                }
+            }
+            state.current_seat_index = advance(state, 1);
+        }
+        Some(ActionEffect::Whot { .. }) | None => {
+            state.pending_effect = None;
             state.current_seat_index = advance(state, 1);
         }
     }
@@ -359,6 +275,11 @@ fn apply_whot_card(
     seat_index: usize,
     called_shape: Shape,
 ) -> Result<(), GameError> {
+    // Settle any General Market obligation before playing.
+    if state.seats[seat_index].owed_draws > 0 {
+        return Err(GameError::MustDraw);
+    }
+
     let pos = state.seats[seat_index]
         .hand
         .iter()
@@ -383,9 +304,11 @@ fn apply_whot_card(
     if won {
         state.phase = GamePhase::Finished;
         state.winner_index = Some(seat_index);
+        return Ok(());
     }
 
-    resolve_next_turn(state, Some(ActionEffect::Whot { called_shape }));
+    // Whot just changes the called shape — no penalty, next player's turn.
+    state.current_seat_index = advance(state, 1);
     Ok(())
 }
 
@@ -397,29 +320,32 @@ fn apply_draw(state: &mut GameState, seat_index: usize) -> Result<(), GameError>
         return Err(GameError::NotYourTurn);
     }
 
-    // Pending pick — player couldn't counter; draw the full accumulated total
-    if let Some(PendingEffect::Pick { total, .. }) = state.pending_effect.clone() {
-        let count = total as usize;
+    // General Market obligation: take *all* the cards you owe yourself, then your
+    // turn ends. This is the "you pick it yourself" flow — the game blocked here
+    // waiting for exactly this.
+    let owed = state.seats[seat_index].owed_draws;
+    if owed > 0 {
+        state.seats[seat_index].owed_draws = 0;
+        draw_cards(state, seat_index, owed as usize);
+        state.current_seat_index = advance(state, 1);
+        return Ok(());
+    }
+
+    // Pending pick you didn't (fully) counter: draw the owed penalty. `count` is
+    // the number of penalty cards; each costs its per-card draw (a 2 = 2, a 5 = 3).
+    if let Some(PendingEffect::Pick { count, card }) = state.pending_effect.clone() {
+        let draw = (count * per_card_draw(card)) as usize;
         state.pending_effect = None;
-        reshuffle_discard(state);
-        let take = count.min(state.stock_pile.len());
-        let drawn: Vec<Card> = (0..take).filter_map(|_| state.stock_pile.pop()).collect();
-        state.seats[seat_index].hand.extend(drawn);
+        draw_cards(state, seat_index, draw);
         state.current_seat_index = advance(state, 1);
         return Ok(());
     }
 
     // Voluntary draw: a player may always go to market and take a single card,
     // even when they hold a playable card. Drawing ends the turn.
-    let skipping = matches!(state.pending_effect, Some(PendingEffect::Skip));
-    reshuffle_discard(state);
-
-    if let Some(card) = state.stock_pile.pop() {
-        state.seats[seat_index].hand.push(card);
-    }
+    draw_cards(state, seat_index, 1);
     state.pending_effect = None;
-    state.current_seat_index = advance(state, if skipping { 2 } else { 1 });
-
+    state.current_seat_index = advance(state, 1);
     Ok(())
 }
 
@@ -435,7 +361,8 @@ pub fn apply_action(
         return Err(GameError::NotYourTurn);
     }
     match action {
-        Action::PlaySuit { shape, value } => apply_suit_card(state, seat_index, shape, value),
+        // A single suit card is just a one-card stack.
+        Action::PlaySuit { shape, value } => apply_stack(state, seat_index, value, &[shape]),
         Action::PlayWhot { called_shape } => apply_whot_card(state, seat_index, called_shape),
         Action::Draw => apply_draw(state, seat_index),
     }
@@ -467,6 +394,7 @@ pub fn make_view(state: &GameState, viewer_user_id: Option<Uuid>) -> GameStateVi
                     vec![]
                 },
                 hand_size: seat.hand.len(),
+                owed_draws: seat.owed_draws,
             })
             .collect(),
         stock_size: state.stock_pile.len(),
@@ -500,6 +428,7 @@ mod tests {
                 user_id: uuid::Uuid::new_v4(),
             },
             hand,
+            owed_draws: 0,
         }
     }
     fn state(mode: GameMode, seats: Vec<Seat>, top: (Shape, u8)) -> GameState {
@@ -538,9 +467,10 @@ mod tests {
             (Shape::Circle, 2),
         );
         apply_stack(&mut st, 0, 2, &[Shape::Triangle, Shape::Star]).unwrap();
+        // Two 2s = a penalty of two cards (drawn as 2*2 = 4).
         assert_eq!(
             st.pending_effect,
-            Some(PendingEffect::Pick { total: 4, card: 2 })
+            Some(PendingEffect::Pick { count: 2, card: 2 })
         );
         assert_eq!(st.current_seat_index, 1);
         assert_eq!(st.seats[0].hand.len(), 1);
@@ -569,9 +499,99 @@ mod tests {
             ],
             (Shape::Circle, 2),
         );
-        st.pending_effect = Some(PendingEffect::Pick { total: 2, card: 2 });
+        st.pending_effect = Some(PendingEffect::Pick { count: 1, card: 2 });
         // A 5 cannot counter a 2-penalty.
         assert!(apply_stack(&mut st, 0, 5, &[Shape::Triangle]).is_err());
+    }
+
+    #[test]
+    fn equal_counter_cancels_penalty() {
+        // Pending 1x2 on A; A answers with one 2 -> clears, advances to B.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Triangle, 2), suit(Shape::Circle, 9)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 2),
+        );
+        st.pending_effect = Some(PendingEffect::Pick { count: 1, card: 2 });
+        apply_stack(&mut st, 0, 2, &[Shape::Triangle]).unwrap();
+        assert_eq!(st.pending_effect, None);
+        assert_eq!(st.current_seat_index, 1);
+    }
+
+    #[test]
+    fn over_counter_passes_excess() {
+        // A plays 1x2, B answers with 2x2 -> net one 2 owed by the next player (A).
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Triangle, 2), suit(Shape::Circle, 9)]),
+                seat("B", vec![suit(Shape::Star, 2), suit(Shape::Cross, 2), suit(Shape::Square, 4)]),
+            ],
+            (Shape::Circle, 2),
+        );
+        apply_stack(&mut st, 0, 2, &[Shape::Triangle]).unwrap();
+        assert_eq!(st.pending_effect, Some(PendingEffect::Pick { count: 1, card: 2 }));
+        assert_eq!(st.current_seat_index, 1);
+        apply_stack(&mut st, 1, 2, &[Shape::Star, Shape::Cross]).unwrap();
+        assert_eq!(st.pending_effect, Some(PendingEffect::Pick { count: 1, card: 2 }));
+        assert_eq!(st.current_seat_index, 0); // excess lands back on A
+    }
+
+    #[test]
+    fn under_counter_stays_and_draws_remainder() {
+        // Pending 2x5 on A; A plays one 5 -> cancels one, still owes one, stays A's
+        // turn. A then draws the remaining 5 (3 cards) and the turn advances.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Triangle, 5), suit(Shape::Circle, 9)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 5),
+        );
+        st.pending_effect = Some(PendingEffect::Pick { count: 2, card: 5 });
+        apply_stack(&mut st, 0, 5, &[Shape::Triangle]).unwrap();
+        assert_eq!(st.pending_effect, Some(PendingEffect::Pick { count: 1, card: 5 }));
+        assert_eq!(st.current_seat_index, 0); // still A's turn — must draw remainder
+        let before = st.seats[0].hand.len();
+        apply_action(&mut st, 0, Action::Draw).unwrap();
+        assert_eq!(st.seats[0].hand.len(), before + 3); // one 5 = 3 cards
+        assert_eq!(st.pending_effect, None);
+        assert_eq!(st.current_seat_index, 1);
+    }
+
+    #[test]
+    fn general_market_owes_each_other_a_self_draw() {
+        // A plays 14 in a 3-player game. B and C each owe one draw; turn advances
+        // to B, whose only legal action is to draw (playing a card is rejected).
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Triangle, 14), suit(Shape::Circle, 9)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+                seat("C", vec![suit(Shape::Square, 12)]),
+            ],
+            (Shape::Circle, 14),
+        );
+        apply_stack(&mut st, 0, 14, &[Shape::Triangle]).unwrap();
+        assert_eq!(st.seats[0].owed_draws, 0);
+        assert_eq!(st.seats[1].owed_draws, 1);
+        assert_eq!(st.seats[2].owed_draws, 1);
+        assert_eq!(st.current_seat_index, 1); // advanced to B, not A "play again"
+        // B cannot play while owing a draw.
+        assert!(matches!(
+            apply_action(&mut st, 1, Action::PlaySuit { shape: Shape::Cross, value: 10 }),
+            Err(GameError::MustDraw)
+        ));
+        // B draws the owed card themselves; turn moves to C.
+        let b_before = st.seats[1].hand.len();
+        apply_action(&mut st, 1, Action::Draw).unwrap();
+        assert_eq!(st.seats[1].hand.len(), b_before + 1);
+        assert_eq!(st.seats[1].owed_draws, 0);
+        assert_eq!(st.current_seat_index, 2);
     }
 
     #[test]

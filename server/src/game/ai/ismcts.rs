@@ -587,6 +587,7 @@ mod tests {
             name: name.into(),
             kind: SeatKind::Ai { difficulty: d },
             hand: vec![],
+            owed_draws: 0,
         }
     }
 

@@ -11,6 +11,12 @@ pub fn build_candidates(state: &GameState, seat_index: usize) -> Vec<Candidate> 
         return vec![Candidate::Draw];
     };
 
+    // A General Market obligation must be settled first — the only move is to
+    // draw the owed card(s).
+    if seat.owed_draws > 0 {
+        return vec![Candidate::Draw];
+    }
+
     let valid = valid_moves(
         &seat.hand,
         state.top_card,
@@ -141,11 +147,12 @@ mod tests {
                 Card::Suit { shape: Shape::Star, value: 7 },
                 Card::Suit { shape: Shape::Circle, value: 3 },
             ],
+            owed_draws: 0,
         };
         let st = GameState {
             id: Uuid::new_v4(),
             mode: GameMode::Stack,
-            seats: vec![seat, Seat { name: "b".into(), kind: SeatKind::Ai { difficulty: crate::game::types::Difficulty::Pikin }, hand: vec![Card::Suit { shape: Shape::Cross, value: 10 }] }],
+            seats: vec![seat, Seat { name: "b".into(), kind: SeatKind::Ai { difficulty: crate::game::types::Difficulty::Pikin }, hand: vec![Card::Suit { shape: Shape::Cross, value: 10 }], owed_draws: 0 }],
             stock_pile: vec![Card::Suit { shape: Shape::Circle, value: 3 }; 20],
             discard_pile: vec![Card::Suit { shape: Shape::Circle, value: 7 }],
             top_card: TopCard::Suit { shape: Shape::Circle, value: 7 },
@@ -168,11 +175,12 @@ mod tests {
                 Card::Suit { shape: Shape::Triangle, value: 7 },
                 Card::Suit { shape: Shape::Star, value: 7 },
             ],
+            owed_draws: 0,
         };
         let st = GameState {
             id: Uuid::new_v4(),
             mode: GameMode::NoStack,
-            seats: vec![seat, Seat { name: "b".into(), kind: SeatKind::Ai { difficulty: crate::game::types::Difficulty::Pikin }, hand: vec![Card::Suit { shape: Shape::Cross, value: 10 }] }],
+            seats: vec![seat, Seat { name: "b".into(), kind: SeatKind::Ai { difficulty: crate::game::types::Difficulty::Pikin }, hand: vec![Card::Suit { shape: Shape::Cross, value: 10 }], owed_draws: 0 }],
             stock_pile: vec![Card::Suit { shape: Shape::Circle, value: 3 }; 20],
             discard_pile: vec![Card::Suit { shape: Shape::Circle, value: 7 }],
             top_card: TopCard::Suit { shape: Shape::Circle, value: 7 },
