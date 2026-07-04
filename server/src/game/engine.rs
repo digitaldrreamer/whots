@@ -1,4 +1,5 @@
 use rand::seq::SliceRandom;
+use rand::Rng;
 use uuid::Uuid;
 
 use crate::game::{
@@ -106,17 +107,49 @@ pub fn create_game(seats: Vec<Seat>, mode: GameMode) -> GameState {
     };
     let top_card = TopCard::Suit { shape, value };
 
-    GameState {
+    // The starting player is random — nobody is perpetually "seat 0".
+    let start = rng.gen_range(0..n);
+
+    let mut state = GameState {
         id: Uuid::new_v4(),
         mode,
         seats: seats_with_hands,
         stock_pile: deck,
         discard_pile: vec![Card::Suit { shape, value }],
         top_card,
-        current_seat_index: 0,
+        current_seat_index: start,
         phase: GamePhase::Playing,
         pending_effect: None,
         winner_index: None,
+    };
+    apply_opening_effect(&mut state);
+    state
+}
+
+/// If the game opens on an action card, its effect lands on the starting player
+/// exactly as if an invisible player had just played it:
+/// - Pick 2 / Pick 3 (2/5): the starter is under the penalty — counter it (stack
+///   mode) or go to market, then play moves on.
+/// - Suspension (8): the starter loses their turn; play moves on.
+/// - General Market (14): every seat owes a self-draw — the round of draws
+///   resolves before play returns to the starter.
+/// - Hold On (1) / plain cards: the starter just plays a normal first turn.
+/// (Whot never opens — the starting top is always a suit card.)
+fn apply_opening_effect(state: &mut GameState) {
+    let TopCard::Suit { value, .. } = state.top_card else {
+        return;
+    };
+    let n = state.seats.len();
+    match value {
+        2 => state.pending_effect = Some(PendingEffect::Pick { count: 1, card: 2 }),
+        5 => state.pending_effect = Some(PendingEffect::Pick { count: 1, card: 5 }),
+        8 => state.current_seat_index = (state.current_seat_index + 1) % n,
+        14 => {
+            for s in state.seats.iter_mut() {
+                s.owed_draws = 1;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -592,6 +625,56 @@ mod tests {
         assert_eq!(st.seats[1].hand.len(), b_before + 1);
         assert_eq!(st.seats[1].owed_draws, 0);
         assert_eq!(st.current_seat_index, 2);
+    }
+
+    #[test]
+    fn opening_pick_penalizes_the_starter() {
+        // Game opens on a 2 -> the starting player is under a Pick of one 2.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Circle, 7)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 2),
+        );
+        apply_opening_effect(&mut st);
+        assert_eq!(st.pending_effect, Some(PendingEffect::Pick { count: 1, card: 2 }));
+        assert_eq!(st.current_seat_index, 0);
+    }
+
+    #[test]
+    fn opening_suspension_skips_the_starter() {
+        // Opens on an 8 -> the starting player is suspended, play moves on.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Circle, 7)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+                seat("C", vec![suit(Shape::Star, 3)]),
+            ],
+            (Shape::Circle, 8),
+        );
+        apply_opening_effect(&mut st); // starter = seat 0
+        assert_eq!(st.current_seat_index, 1);
+        assert_eq!(st.pending_effect, None);
+    }
+
+    #[test]
+    fn opening_general_market_owes_everyone() {
+        // Opens on a 14 -> every seat owes one self-draw before play resumes.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Circle, 7)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+                seat("C", vec![suit(Shape::Star, 3)]),
+            ],
+            (Shape::Circle, 14),
+        );
+        apply_opening_effect(&mut st);
+        assert!(st.seats.iter().all(|s| s.owed_draws == 1));
+        assert_eq!(st.current_seat_index, 0); // draws round back to the starter
     }
 
     #[test]
