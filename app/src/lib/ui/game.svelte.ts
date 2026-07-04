@@ -561,6 +561,7 @@ export class GameController {
 			sound.play('win');
 			this.winBurst += 1;
 			this.#pushLog('system', 'You emptied your hand — you win! 🎉');
+			if (wasTee) void session.refreshUser(); // pick up the freshly-earned badge
 		} else {
 			// When Tee-Noble beats you, his evil laugh is the send-off (not the
 			// generic lose jingle).

@@ -244,6 +244,9 @@
 							</span>
 							<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
 						</div>
+						{#if session.user.beat_tee_noble}
+							<div class="badge-chip">🏆 Tee-Noble Slayer</div>
+						{/if}
 						{#if session.passkeysSupported}
 							<button class="online room" onclick={addPasskey} disabled={pkBusy}>
 								{pkBusy ? '…' : pkDone ? '✓ Passkey saved' : '🔑 Add a passkey (no email)'}
@@ -503,6 +506,16 @@
 		color: rgba(255, 255, 255, 0.4);
 		font-size: 0.85rem;
 		margin: 0;
+	}
+	.badge-chip {
+		align-self: flex-start;
+		background: linear-gradient(135deg, #e8b84b, #d99a2b);
+		color: #1a1205;
+		font-weight: 800;
+		font-size: 0.8rem;
+		padding: 0.3rem 0.7rem;
+		border-radius: 999px;
+		box-shadow: 0 3px 12px rgba(232, 184, 75, 0.3);
 	}
 	.upgrade {
 		display: flex;

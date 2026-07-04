@@ -14,6 +14,7 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub is_guest: bool,
     pub email_verified: bool,
+    pub beat_tee_noble: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -26,6 +27,7 @@ pub struct PublicUser {
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub is_guest: bool,
+    pub beat_tee_noble: bool,
 }
 
 impl From<User> for PublicUser {
@@ -36,6 +38,7 @@ impl From<User> for PublicUser {
             display_name: u.display_name,
             avatar_url: u.avatar_url,
             is_guest: u.is_guest,
+            beat_tee_noble: u.beat_tee_noble,
         }
     }
 }

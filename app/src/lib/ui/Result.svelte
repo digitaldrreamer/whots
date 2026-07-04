@@ -15,7 +15,7 @@
 			<h1>Tee-Noble</h1>
 			<p>
 				Your streak drew attention. Tee-Noble plays a flawless game — every module, no blind spots,
-				no mercy. Beat them and claim a permanent badge and a month of Pro.
+				no mercy. Beat them and the Tee-Noble Slayer badge is yours forever.
 			</p>
 			<p class="warn">One shot. Decline or lose, and they vanish.</p>
 			<div class="btns">
@@ -31,7 +31,7 @@
 				<div class="emoji">🏆</div>
 				<span class="kicker">Legendary</span>
 				<h1>You beat Tee-Noble</h1>
-				<p>A permanent badge is yours, plus one month of Pro. Few ever see this screen.</p>
+				<p>The 🏆 <strong>Tee-Noble Slayer</strong> badge is now on your profile — forever. Few ever see this screen.</p>
 			{:else if won}
 				<div class="emoji">🎉</div>
 				<h1>You win!</h1>

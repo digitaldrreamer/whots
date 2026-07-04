@@ -18,7 +18,9 @@ use crate::{
     game::{
         ai::{apply_ai_move, select_move, AiMove},
         engine::{apply_action, apply_stack, make_view, GameError},
-        types::{Action, GamePhase, GameState, GameStateView, PendingEffect, SeatKind, Shape},
+        types::{
+            Action, Difficulty, GamePhase, GameState, GameStateView, PendingEffect, SeatKind, Shape,
+        },
     },
     state::AppState,
     store::game_store,
@@ -298,15 +300,17 @@ pub async fn run_game_driver(
         }
 
         if game_over {
+            // Persist the result (incl. the Tee-Noble badge) BEFORE announcing, so
+            // a client that refreshes on game-over sees the freshly-earned badge.
+            if let Err(e) = save_result(&db, &state).await {
+                tracing::warn!(%game_id, "DB result save failed: {e}");
+            }
             let ev = Arc::new(ServerEvent::GameOver {
                 winner_index,
                 winner_name,
             });
             broadcast_raw(&player_txs, Arc::clone(&ev));
             broadcast_raw(&spectator_txs, ev);
-            if let Err(e) = save_result(&db, &state).await {
-                tracing::warn!(%game_id, "DB result save failed: {e}");
-            }
             let _ = game_store::delete(&mut redis, game_id).await;
             rooms.remove(&game_id);
             break;
@@ -364,6 +368,20 @@ async fn save_result(db: &sqlx::PgPool, state: &GameState) -> anyhow::Result<()>
         .bind(winner as i32)
         .execute(db)
         .await?;
+
+        // "You beat Tee-Noble" badge: a human who won a game that had a Tee-Noble
+        // opponent earns the permanent bragging right.
+        let had_tee_noble = state.seats.iter().any(
+            |s| matches!(&s.kind, SeatKind::Ai { difficulty } if *difficulty == Difficulty::TeeNoble),
+        );
+        if had_tee_noble {
+            if let SeatKind::Human { user_id } = &state.seats[winner].kind {
+                sqlx::query("UPDATE users SET beat_tee_noble = TRUE WHERE id = $1")
+                    .bind(user_id)
+                    .execute(db)
+                    .await?;
+            }
+        }
     }
 
     Ok(())

@@ -36,6 +36,16 @@ class SessionStore {
 		return ok;
 	}
 
+	/** Re-fetch the current user (e.g. after earning a badge) without touching tokens. */
+	async refreshUser(): Promise<void> {
+		try {
+			const res = await this.apiFetch('/api/users/me');
+			if (res.ok) this.user = (await res.json()) as PublicUser;
+		} catch {
+			/* transient — keep current user */
+		}
+	}
+
 	async guest(username: string): Promise<void> {
 		await this.#authCall('/auth/guest', { username });
 	}
