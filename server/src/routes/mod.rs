@@ -2,6 +2,7 @@ pub mod auth;
 pub mod friends;
 pub mod games;
 pub mod health;
+pub mod invites;
 pub mod matchmaking;
 pub mod notifications;
 pub mod rooms;
@@ -28,7 +29,14 @@ pub fn all_routes() -> Router<AppState> {
         .nest("/matchmaking", matchmaking_routes())
         .nest("/notifications", notification_routes())
         .nest("/rooms", room_routes())
+        .nest("/invites", invite_routes())
         .nest("/ws", ws_routes())
+}
+
+fn invite_routes() -> Router<AppState> {
+    Router::new()
+        .route("/", post(invites::create))
+        .route("/:token/redeem", post(invites::redeem))
 }
 
 fn auth_routes() -> Router<AppState> {
@@ -60,7 +68,7 @@ fn user_routes() -> Router<AppState> {
     Router::new()
         .route("/me", get(users::me).put(users::update_me))
         .route("/me/games", get(users::my_games))
-        .route("/search", get(users::search))
+        // Username search removed — friend discovery is invite-link only.
         .route("/:username", get(users::get_by_username))
         .route("/contacts/upload", post(users::upload_contact_hashes))
         .route("/contacts/matches", get(users::contact_matches))

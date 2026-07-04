@@ -5,6 +5,7 @@ import * as social from '$lib/api/social';
 import * as mm from '$lib/api/matchmaking';
 import { acceptGame, declineGame, createGame } from '$lib/api/games';
 import * as rooms from '$lib/api/rooms';
+import { createInvite } from '$lib/api/invites';
 import type {
 	Difficulty,
 	FriendRow,
@@ -17,7 +18,7 @@ import type {
 class LobbyStore {
 	friends = $state<FriendRow[]>([]);
 	requests = $state<PublicUser[]>([]);
-	searchResults = $state<PublicUser[]>([]);
+	inviteLink = $state<string | null>(null);
 	inQueue = $state(false);
 	queueMode = $state<GameMode | null>(null);
 	pendingInvite = $state<{ gameId: string; from: string } | null>(null);
@@ -75,6 +76,10 @@ class LobbyStore {
 			case 'game_declined':
 				this.#flash(`${from} declined your invite`);
 				break;
+			case 'friend_added':
+				this.#flash(`${from} is now your friend`);
+				void this.refresh();
+				break;
 			case 'lobby_invite':
 				if (rid) this.pendingRoomInvite = { roomId: rid, from };
 				break;
@@ -119,15 +124,14 @@ class LobbyStore {
 	}
 
 	// ── Friends ────────────────────────────────────────────────────────────────────
-	async search(q: string): Promise<void> {
-		this.searchResults = q.trim().length >= 2 ? await social.searchUsers(q).catch(() => []) : [];
-	}
-	async addFriend(username: string): Promise<void> {
+	/** Mint a one-use invite link to share privately. Discovery is invite-only. */
+	async createInviteLink(): Promise<void> {
+		this.error = null;
 		try {
-			await social.sendFriendRequest(username);
-			this.#flash('Friend request sent');
+			const { token } = await createInvite();
+			this.inviteLink = `${location.origin}/add/${token}`;
 		} catch (e) {
-			this.error = e instanceof Error ? e.message : 'Could not send request.';
+			this.error = e instanceof Error ? e.message : 'Could not create invite link.';
 		}
 	}
 	async acceptRequest(username: string): Promise<void> {
@@ -275,7 +279,7 @@ class LobbyStore {
 	reset(): void {
 		this.friends = [];
 		this.requests = [];
-		this.searchResults = [];
+		this.inviteLink = null;
 		this.inQueue = false;
 		this.queueMode = null;
 		this.pendingInvite = null;

@@ -23,9 +23,20 @@
 	let difficulty = $state<Difficulty>('chief');
 	let opponents = $state(1);
 	let showRules = $state(false);
-	let query = $state('');
+	let copied = $state(false);
 
 	const authed = $derived(session.status === 'authed');
+
+	async function copyLink() {
+		if (!lobby.inviteLink) return;
+		try {
+			await navigator.clipboard.writeText(lobby.inviteLink);
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} catch {
+			/* clipboard blocked — the link is selectable in the field */
+		}
+	}
 
 	const NAV: { id: Section; icon: string; label: string }[] = [
 		{ id: 'play', icon: '🎴', label: 'Play' },
@@ -38,9 +49,6 @@
 
 	function deal() {
 		game.start({ mode, difficulty, opponents });
-	}
-	async function onSearch() {
-		await lobby.search(query);
 	}
 </script>
 
@@ -168,14 +176,17 @@
 						{/each}
 					</div>
 					<div class="field">
-						<span class="label">Add a friend</span>
-						<input class="search" placeholder="Search username…" bind:value={query} oninput={onSearch} />
-						{#each lobby.searchResults as u (u.id)}
-							<div class="person">
-								<span class="who">{u.display_name}<small>@{u.username}</small></span>
-								<button class="mini go" onclick={() => lobby.addFriend(u.username)}>Add</button>
+						<span class="label">Invite a friend</span>
+						{#if lobby.inviteLink}
+							<div class="invite-link">
+								<input readonly value={lobby.inviteLink} onclick={(e) => e.currentTarget.select()} />
+								<button class="mini go" onclick={copyLink}>{copied ? 'Copied!' : 'Copy'}</button>
 							</div>
-						{/each}
+							<span class="hint">One-time link — send it to someone you know. They become your friend the moment they open it.</span>
+						{:else}
+							<button class="online" onclick={() => lobby.createInviteLink()}>Create invite link</button>
+							<span class="hint">No username search — you add friends only by sharing a one-time link.</span>
+						{/if}
 					</div>
 				{/if}
 				{#if lobby.error}<span class="err">{lobby.error}</span>{/if}
@@ -427,14 +438,19 @@
 		font-size: 0.85rem;
 		margin: 0;
 	}
-	.search {
-		width: 100%;
-		padding: 0.6rem 0.8rem;
+	.invite-link {
+		display: flex;
+		gap: 0.4rem;
+	}
+	.invite-link input {
+		flex: 1;
+		min-width: 0;
+		padding: 0.55rem 0.7rem;
 		border-radius: 10px;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		background: rgba(255, 255, 255, 0.04);
-		color: #fff;
-		font-size: 0.9rem;
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 0.8rem;
 	}
 
 	.segmented {
