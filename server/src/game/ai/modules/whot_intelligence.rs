@@ -3,17 +3,22 @@ use crate::game::{
     engine::CARDS_PER_SHAPE,
 };
 
-/// When forced to play Whot, call the shape opponents are least likely to hold.
+/// When playing a Whot (or declaring an opening Whot's shape), call the shape
+/// opponents are least likely to hold.
 pub fn whot_intelligence(candidate: &Candidate, ctx: &ModuleContext<'_>) -> f64 {
-    let Candidate::PlayWhot { called_shape } = candidate else {
-        return 0.0;
+    let called_shape = match candidate {
+        Candidate::PlayWhot { called_shape } => called_shape,
+        Candidate::CallShape { shape } => shape,
+        _ => return 0.0,
     };
 
-    // If any suit play is available, don't bias toward Whot — let suit cards win
-    if ctx
-        .candidates
-        .iter()
-        .any(|c| matches!(c, Candidate::PlaySuit { .. }))
+    // For an actual Whot play, don't bias toward it when a suit play exists — let
+    // suit cards win. An opening CallShape has no alternative, so always score it.
+    if matches!(candidate, Candidate::PlayWhot { .. })
+        && ctx
+            .candidates
+            .iter()
+            .any(|c| matches!(c, Candidate::PlaySuit { .. }))
     {
         return 0.0;
     }

@@ -1,6 +1,12 @@
 use crate::game::types::{Card, GameMode, PendingEffect, TopCard};
 
 pub fn can_play(card: Card, top: TopCard, pending: &Option<PendingEffect>, mode: GameMode) -> bool {
+    // An opening Whot must be resolved by declaring a shape (a CallShape action),
+    // not by playing a card — nothing is playable until then.
+    if matches!(pending, Some(PendingEffect::CallShape)) {
+        return false;
+    }
+
     // Under a pending penalty, countering is number-locked: only the same
     // number that started it (a 2-chain answered with 2s, a 5-chain with 5s),
     // and only in stack mode. No-stack has no counter — the player must draw.

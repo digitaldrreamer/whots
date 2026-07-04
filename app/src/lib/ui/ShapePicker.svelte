@@ -3,15 +3,28 @@
 	import { SHAPE_COLORS, SHAPE_LABELS } from './theme.js';
 	import Shape from './Shape.svelte';
 
-	let { onpick, oncancel }: { onpick: (s: (typeof SHAPES)[number]) => void; oncancel: () => void } =
-		$props();
+	let {
+		onpick,
+		oncancel,
+		cancelable = true,
+		prompt = 'Your Whot is wild — choose the shape the next player must match.'
+	}: {
+		onpick: (s: (typeof SHAPES)[number]) => void;
+		oncancel: () => void;
+		cancelable?: boolean;
+		prompt?: string;
+	} = $props();
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && oncancel()} />
-<div class="scrim" role="presentation" onclick={(e) => e.target === e.currentTarget && oncancel()}>
+<svelte:window onkeydown={(e) => e.key === 'Escape' && cancelable && oncancel()} />
+<div
+	class="scrim"
+	role="presentation"
+	onclick={(e) => e.target === e.currentTarget && cancelable && oncancel()}
+>
 	<div class="picker" role="dialog" aria-modal="true" aria-label="Call a shape" tabindex="-1">
 		<h2>Call a shape</h2>
-		<p>Your Whot is wild — choose the shape the next player must match.</p>
+		<p>{prompt}</p>
 		<div class="grid">
 			{#each SHAPES as shape (shape)}
 				<button class="opt" style:--c={SHAPE_COLORS[shape]} onclick={() => onpick(shape)}>
@@ -20,7 +33,9 @@
 				</button>
 			{/each}
 		</div>
-		<button class="cancel" onclick={oncancel}>Cancel</button>
+		{#if cancelable}
+			<button class="cancel" onclick={oncancel}>Cancel</button>
+		{/if}
 	</div>
 </div>
 

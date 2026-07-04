@@ -29,6 +29,7 @@ pub fn setup_plays(candidate: &Candidate, ctx: &ModuleContext<'_>) -> f64 {
         Candidate::PlayWhot { called_shape } => TopCard::Whot {
             called_shape: *called_shape,
         },
+        Candidate::CallShape { shape } => TopCard::Whot { called_shape: *shape },
         Candidate::Draw => unreachable!(),
     };
 

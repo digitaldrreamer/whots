@@ -91,6 +91,9 @@ pub enum PendingEffect {
         card: u8,
     },
     Skip,
+    /// The game opened on a Whot: the current (starting) player must declare a
+    /// shape before anyone can play. Their only legal move is CallShape.
+    CallShape,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -157,5 +160,8 @@ pub struct GameStateView {
 pub enum Action {
     PlaySuit { shape: Shape, value: u8 },
     PlayWhot { called_shape: Shape },
+    /// Declare the shape for an opening Whot (the game started on a Whot). No card
+    /// leaves the hand; play then passes to the next player, who must match.
+    CallShape { called_shape: Shape },
     Draw,
 }

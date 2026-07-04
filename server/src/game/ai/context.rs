@@ -2,7 +2,7 @@ use super::types::{Candidate, ModuleContext};
 use crate::game::{
     engine::CARDS_PER_SHAPE,
     moves::valid_moves,
-    types::{Card, GameMode, GameState, Shape, SHAPES},
+    types::{Card, GameMode, GameState, PendingEffect, Shape, SHAPES},
 };
 use std::collections::HashMap;
 
@@ -10,6 +10,11 @@ pub fn build_candidates(state: &GameState, seat_index: usize) -> Vec<Candidate> 
     let Some(seat) = state.seats.get(seat_index) else {
         return vec![Candidate::Draw];
     };
+
+    // Opening Whot: the only move is to declare a shape.
+    if matches!(state.pending_effect, Some(PendingEffect::CallShape)) {
+        return SHAPES.iter().map(|&shape| Candidate::CallShape { shape }).collect();
+    }
 
     // A General Market obligation must be settled first — the only move is to
     // draw the owed card(s).

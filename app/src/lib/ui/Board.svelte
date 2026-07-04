@@ -32,7 +32,7 @@
 
 	// You may always go to market on your turn (voluntary draw), pending pick or not.
 	// Gated on a live socket (game.canAct) so a disconnect can't queue plays.
-	const drawEnabled = $derived(game.canAct);
+	const drawEnabled = $derived(game.canAct && !game.mustCallShape);
 
 	const status = $derived.by(() => {
 		if (!view) return '';
@@ -40,6 +40,7 @@
 		// Not my turn: say whose it is / who we're waiting on (statusLine also
 		// calls out a player who still owes a General Market draw).
 		if (!game.isMyTurn) return game.statusLine;
+		if (game.mustCallShape) return 'The game opened on a Whot — call a shape.';
 		if (game.myOwedDraws > 0) {
 			return `General Market — go to market and pick ${game.myOwedDraws} card${game.myOwedDraws > 1 ? 's' : ''} to continue.`;
 		}
@@ -285,8 +286,15 @@
 		{/if}
 	</div>
 
-	{#if game.awaitingShape}
-		<ShapePicker onpick={(s) => game.chooseShape(s)} oncancel={() => game.cancelWhot()} />
+	{#if game.awaitingShape || game.mustCallShape}
+		<ShapePicker
+			onpick={(s) => game.chooseShape(s)}
+			oncancel={() => game.cancelWhot()}
+			cancelable={!game.mustCallShape}
+			prompt={game.mustCallShape
+				? 'The game opened on a Whot — choose the shape the next player must match.'
+				: 'Your Whot is wild — choose the shape the next player must match.'}
+		/>
 	{/if}
 
 	<FlightLayer {flights} ondone={endFlight} />

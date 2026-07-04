@@ -56,6 +56,7 @@ pub type RoomRegistry = DashMap<Uuid, RoomHandle>;
 enum WsAction {
     Suit { shape: Shape, value: u8 },
     Whot { called_shape: Shape },
+    CallShape { called_shape: Shape },
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,14 +147,22 @@ fn ai_table_talk(state: &GameState, seat: usize, mv: &AiMove) -> Option<String> 
         _ => match value {
             Some(2) | Some(5) => {
                 let d = pick.unwrap_or(if value == Some(5) { 3 } else { 2 });
+                let mut pool = vec![
+                    format!("Oya pick {d}!"),
+                    "Collect joor!".into(),
+                    "You think say you wise? 😏".into(),
+                    format!("Say cheese 📸 — pick {d}!"),
+                    format!("Why are you running? Pick {d}!"),
+                    format!("Get over here! Pick {d}."),
+                    "This is my table, bro.".into(),
+                    format!("Nothing for una — pick {d}!"),
+                    format!("Pick {d}, {next}."),
+                ];
                 if threat_low {
-                    vec![
-                        format!("Not so fast, {threat_name} — pick {d}!"),
-                        format!("{threat_name}'s almost out. Pick {d}!"),
-                    ]
-                } else {
-                    vec![format!("Pick {d}, {next}."), format!("Take {d}, {next}.")]
+                    pool.push(format!("Not so fast, {threat_name} — pick {d}!"));
+                    pool.push(format!("{threat_name}'s almost out. Pick {d}!"));
                 }
+                pool
             }
             Some(8) if threat_low => {
                 vec![format!("Skip you, {threat_name}."), format!("Not yet, {threat_name}.")]
@@ -447,6 +456,7 @@ async fn on_client_message(
             let action = match action {
                 WsAction::Suit { shape, value } => Action::PlaySuit { shape, value },
                 WsAction::Whot { called_shape } => Action::PlayWhot { called_shape },
+                WsAction::CallShape { called_shape } => Action::CallShape { called_shape },
             };
             send_move(user_id, PlayerMove::Single(action), move_tx, socket).await;
         }

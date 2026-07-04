@@ -45,6 +45,7 @@ fn cand_to_move(c: Candidate) -> AiMove {
         Candidate::Draw => AiMove::Act(Action::Draw),
         Candidate::PlaySuit { shape, value } => AiMove::Act(Action::PlaySuit { shape, value }),
         Candidate::PlayWhot { called_shape } => AiMove::Act(Action::PlayWhot { called_shape }),
+        Candidate::CallShape { shape } => AiMove::Act(Action::CallShape { called_shape: shape }),
         Candidate::PlayGroup { value, .. } => AiMove::Stack { value },
     }
 }

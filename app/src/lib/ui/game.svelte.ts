@@ -227,8 +227,17 @@ export class GameController {
 		return this.myHand.filter((c) => this.canPlayCard(c));
 	}
 
+	/** The game opened on a Whot and it's my turn to declare its shape. */
+	get mustCallShape(): boolean {
+		return this.isMyTurn && this.view?.pending_effect?.kind === 'call_shape';
+	}
+
 	get mustDraw(): boolean {
-		return this.isMyTurn && (this.myOwedDraws > 0 || this.playableCards.length === 0);
+		return (
+			this.isMyTurn &&
+			!this.mustCallShape &&
+			(this.myOwedDraws > 0 || this.playableCards.length === 0)
+		);
 	}
 
 	/** Whose turn it is / who the table is waiting on — surfaced in the UI so it's
@@ -239,13 +248,16 @@ export class GameController {
 		const cur = v.current_seat_index;
 		const seat = v.seats[cur];
 		const owed = seat?.owed_draws ?? 0;
+		const callShape = v.pending_effect?.kind === 'call_shape';
 		if (cur === this.mySeatIndex) {
+			if (callShape) return 'Your turn — call a shape';
 			if (owed > 0) return `Your turn — pick ${owed} from market`;
 			if (this.pendingPick > 0) return `Your turn — counter or pick ${this.pendingPick}`;
 			if (this.mustDraw) return 'Your turn — go to market';
 			return 'Your turn';
 		}
 		const name = seat?.name ?? 'Opponent';
+		if (callShape) return `Waiting for ${name} to choose a shape`;
 		if (owed > 0) return `Waiting for ${name} to pick from market`;
 		return `${name}'s turn`;
 	}
@@ -614,7 +626,15 @@ export class GameController {
 	chooseShape(shape: Shape): void {
 		if (this.connection !== 'open') return;
 		this.awaitingShape = false;
-		this.#socket?.send({ type: 'play_card', action: { kind: 'whot', called_shape: shape } });
+		// An opening Whot is declared with `call_shape` (no card leaves the hand);
+		// a Whot played from hand uses `whot`.
+		const opening = this.view?.pending_effect?.kind === 'call_shape';
+		this.#socket?.send({
+			type: 'play_card',
+			action: opening
+				? { kind: 'call_shape', called_shape: shape }
+				: { kind: 'whot', called_shape: shape }
+		});
 	}
 
 	cancelWhot(): void {

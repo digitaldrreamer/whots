@@ -9,6 +9,9 @@ export function canPlay(
 	pending: PendingEffect | null,
 	mode: GameMode
 ): boolean {
+	// An opening Whot must be resolved by declaring a shape — nothing is playable.
+	if (pending?.kind === 'call_shape') return false;
+
 	// Under a pending penalty, countering is number-locked and stack-mode only
 	// (a 2-chain answered with 2s, a 5-chain with 5s). No-stack: must draw.
 	if (pending?.kind === 'pick') {

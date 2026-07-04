@@ -18,6 +18,11 @@ pub enum Candidate {
     PlayWhot {
         called_shape: Shape,
     },
+    /// Declare the shape for an opening Whot (the game opened on a Whot). Like
+    /// PlayWhot but no card leaves the hand.
+    CallShape {
+        shape: Shape,
+    },
     Draw,
 }
 

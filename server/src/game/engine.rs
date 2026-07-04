@@ -97,15 +97,17 @@ pub fn create_game(seats: Vec<Seat>, mode: GameMode) -> GameState {
         })
         .collect();
 
-    // First suit card in remaining deck becomes the starting top card
-    let first_suit = deck
-        .iter()
-        .position(|c| matches!(c, Card::Suit { .. }))
-        .expect("deck must contain suit cards");
-    let Card::Suit { shape, value } = deck.remove(first_suit) else {
-        unreachable!()
+    // The opening card is whatever's on top of the remaining deck. A suit card
+    // applies its effect to the starter; a Whot means the starter calls a shape.
+    let opening = deck.remove(0);
+    let top_card = match opening {
+        Card::Suit { shape, value } => TopCard::Suit { shape, value },
+        // Placeholder shape — never used for matching while a CallShape is pending;
+        // the starter's declaration overwrites it.
+        Card::Whot => TopCard::Whot {
+            called_shape: Shape::Circle,
+        },
     };
-    let top_card = TopCard::Suit { shape, value };
 
     // The starting player is random — nobody is perpetually "seat 0".
     let start = rng.gen_range(0..n);
@@ -115,15 +117,35 @@ pub fn create_game(seats: Vec<Seat>, mode: GameMode) -> GameState {
         mode,
         seats: seats_with_hands,
         stock_pile: deck,
-        discard_pile: vec![Card::Suit { shape, value }],
+        discard_pile: vec![opening],
         top_card,
         current_seat_index: start,
         phase: GamePhase::Playing,
         pending_effect: None,
         winner_index: None,
     };
-    apply_opening_effect(&mut state);
+    if matches!(opening, Card::Whot) {
+        state.pending_effect = Some(PendingEffect::CallShape);
+    } else {
+        apply_opening_effect(&mut state);
+    }
     state
+}
+
+/// Declare the shape for an opening Whot. The whot is already on the discard;
+/// this just sets the called shape and passes play to the next player.
+fn apply_call_shape(
+    state: &mut GameState,
+    _seat_index: usize,
+    called_shape: Shape,
+) -> Result<(), GameError> {
+    if !matches!(state.pending_effect, Some(PendingEffect::CallShape)) {
+        return Err(GameError::InvalidMove);
+    }
+    state.top_card = TopCard::Whot { called_shape };
+    state.pending_effect = None;
+    state.current_seat_index = advance(state, 1);
+    Ok(())
 }
 
 /// If the game opens on an action card, its effect lands on the starting player
@@ -353,6 +375,11 @@ fn apply_draw(state: &mut GameState, seat_index: usize) -> Result<(), GameError>
         return Err(GameError::NotYourTurn);
     }
 
+    // An opening Whot must be answered with a shape declaration, not a draw.
+    if matches!(state.pending_effect, Some(PendingEffect::CallShape)) {
+        return Err(GameError::InvalidMove);
+    }
+
     // General Market obligation: take *all* the cards you owe yourself, then your
     // turn ends. This is the "you pick it yourself" flow — the game blocked here
     // waiting for exactly this.
@@ -397,6 +424,7 @@ pub fn apply_action(
         // A single suit card is just a one-card stack.
         Action::PlaySuit { shape, value } => apply_stack(state, seat_index, value, &[shape]),
         Action::PlayWhot { called_shape } => apply_whot_card(state, seat_index, called_shape),
+        Action::CallShape { called_shape } => apply_call_shape(state, seat_index, called_shape),
         Action::Draw => apply_draw(state, seat_index),
     }
 }
@@ -675,6 +703,29 @@ mod tests {
         apply_opening_effect(&mut st);
         assert!(st.seats.iter().all(|s| s.owed_draws == 1));
         assert_eq!(st.current_seat_index, 0); // draws round back to the starter
+    }
+
+    #[test]
+    fn opening_whot_requires_a_shape_call() {
+        // Game opened on a Whot: the starter owes a shape declaration.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat("A", vec![suit(Shape::Circle, 7)]),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 7),
+        );
+        st.pending_effect = Some(PendingEffect::CallShape);
+        st.top_card = TopCard::Whot { called_shape: Shape::Circle };
+        // Can't play a card or draw until a shape is declared.
+        assert!(apply_stack(&mut st, 0, 7, &[Shape::Circle]).is_err());
+        assert!(apply_action(&mut st, 0, Action::Draw).is_err());
+        // Declaring passes play to the next player, who must match the shape.
+        apply_action(&mut st, 0, Action::CallShape { called_shape: Shape::Star }).unwrap();
+        assert_eq!(st.top_card, TopCard::Whot { called_shape: Shape::Star });
+        assert_eq!(st.pending_effect, None);
+        assert_eq!(st.current_seat_index, 1);
     }
 
     #[test]

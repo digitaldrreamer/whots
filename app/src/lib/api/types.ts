@@ -25,7 +25,11 @@ export type GamePhase = 'playing' | 'finished';
 
 // `count` = number of penalty cards owed; `card` = the number that started it
 // (2 or 5). Cards actually drawn = count * (card === 5 ? 3 : 2).
-export type PendingEffect = { kind: 'pick'; count: number; card: number } | { kind: 'skip' };
+export type PendingEffect =
+	| { kind: 'pick'; count: number; card: number }
+	| { kind: 'skip' }
+	// The game opened on a Whot — the starting player must declare a shape.
+	| { kind: 'call_shape' };
 
 export type SeatKind =
 	| { kind: 'human'; user_id: string }
@@ -69,7 +73,8 @@ export interface CreateGameResponse {
 // Client -> server: the card action carried inside `play_card`.
 export type WsAction =
 	| { kind: 'suit'; shape: Shape; value: number }
-	| { kind: 'whot'; called_shape: Shape };
+	| { kind: 'whot'; called_shape: Shape }
+	| { kind: 'call_shape'; called_shape: Shape };
 
 export type ClientEvent =
 	| { type: 'play_card'; action: WsAction }
