@@ -1,5 +1,12 @@
 # ── Stage 1: chef (dependency layer cache) ────────────────────────────────────
 FROM rust:1-slim-bookworm AS chef
+# webauthn-rs pulls in openssl-sys, which needs the OpenSSL headers + pkg-config
+# to build (the rest of the stack is rustls). Install them here so the shared
+# chef base covers both `cargo chef cook` and the real build.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config \
+        libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
@@ -24,6 +31,7 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
