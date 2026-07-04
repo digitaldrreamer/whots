@@ -1,0 +1,121 @@
+import type { PublicUser, Session } from '$lib/api/types';
+
+export type SessionStatus = 'loading' | 'authed' | 'anon';
+
+/**
+ * Browser-side auth state. The access token lives in memory only; the refresh
+ * token is an httpOnly cookie handled by the /auth/* SvelteKit endpoints.
+ */
+class SessionStore {
+	user = $state<PublicUser | null>(null);
+	status = $state<SessionStatus>('loading');
+	#accessToken: string | null = null;
+	#refreshing: Promise<boolean> | null = null;
+
+	get accessToken(): string | null {
+		return this.#accessToken;
+	}
+
+	#apply(s: Session) {
+		this.user = s.user;
+		this.#accessToken = s.access_token;
+		this.status = 'authed';
+	}
+
+	#clear() {
+		this.user = null;
+		this.#accessToken = null;
+		this.status = 'anon';
+	}
+
+	/** Restore a session from the refresh cookie on app start. */
+	async restore(): Promise<boolean> {
+		const ok = await this.#refresh();
+		if (!ok) this.status = 'anon';
+		return ok;
+	}
+
+	async guest(username: string): Promise<void> {
+		await this.#authCall('/auth/guest', { username });
+	}
+
+	async login(identifier: string, password: string): Promise<void> {
+		await this.#authCall('/auth/login', { identifier, password });
+	}
+
+	async register(username: string, email: string, password: string): Promise<void> {
+		await this.#authCall('/auth/register', { username, email, password });
+	}
+
+	async logout(): Promise<void> {
+		const headers: Record<string, string> = {};
+		if (this.#accessToken) headers.authorization = `Bearer ${this.#accessToken}`;
+		await fetch('/auth/logout', { method: 'POST', headers }).catch(() => undefined);
+		this.#clear();
+	}
+
+	async #authCall(path: string, body: unknown): Promise<void> {
+		const res = await fetch(path, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body)
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) throw new ApiError(res.status, data?.error ?? data?.message ?? 'Request failed');
+		this.#apply(data as Session);
+	}
+
+	/** Single-flight refresh so concurrent 401s don't stampede the endpoint. */
+	#refresh(): Promise<boolean> {
+		if (this.#refreshing) return this.#refreshing;
+		this.#refreshing = (async () => {
+			try {
+				const res = await fetch('/auth/refresh', { method: 'POST' });
+				if (!res.ok) {
+					this.#clear();
+					return false;
+				}
+				this.#apply((await res.json()) as Session);
+				return true;
+			} catch {
+				return false;
+			} finally {
+				this.#refreshing = null;
+			}
+		})();
+		return this.#refreshing;
+	}
+
+	/**
+	 * Authenticated fetch against the backend (`/api/...`). Attaches the bearer
+	 * token and transparently refreshes + retries once on a 401.
+	 */
+	async apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+		const doFetch = () =>
+			fetch(path, {
+				...init,
+				headers: {
+					...(init.headers as Record<string, string> | undefined),
+					...(this.#accessToken ? { authorization: `Bearer ${this.#accessToken}` } : {})
+				}
+			});
+
+		let res = await doFetch();
+		if (res.status === 401 && (await this.#refresh())) {
+			res = await doFetch();
+		}
+		return res;
+	}
+}
+
+export class ApiError extends Error {
+	constructor(
+		public status: number,
+		message: string
+	) {
+		super(message);
+		this.name = 'ApiError';
+	}
+}
+
+export const session = new SessionStore();
