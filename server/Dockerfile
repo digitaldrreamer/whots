@@ -1,5 +1,5 @@
 # ── Stage 1: chef (dependency layer cache) ────────────────────────────────────
-FROM rust:1.78-slim AS chef
+FROM rust:1-slim-bookworm AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
