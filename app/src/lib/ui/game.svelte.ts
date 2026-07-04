@@ -280,6 +280,22 @@ export class GameController {
 		return DIFFICULTY_LABELS[this.config.difficulty];
 	}
 
+	/** Chip label derived from the *actual* seats (not the stale menu difficulty),
+	 * so a joined/room game shows the truth: "N players", the AI's difficulty, or
+	 * "Mixed AI" when the room's AIs differ. */
+	get tableLabel(): string {
+		const v = this.view;
+		if (!v) return this.difficultyLabel;
+		const humans = v.seats.filter((s) => s.kind.kind === 'human').length;
+		if (humans > 1) return `${humans} players`;
+		const diffs = new Set(
+			v.seats.filter((s) => s.kind.kind === 'ai').map((s) => (s.kind as { difficulty: Difficulty }).difficulty)
+		);
+		if (diffs.size === 0) return this.difficultyLabel;
+		if (diffs.size === 1) return DIFFICULTY_LABELS[[...diffs][0]];
+		return 'Mixed AI';
+	}
+
 	// ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 	async start(config: GameConfig): Promise<void> {

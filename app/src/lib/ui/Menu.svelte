@@ -1,12 +1,20 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { Difficulty, GameMode } from '$lib/api/types';
 	import { game, DIFFICULTY_META } from './game.svelte.js';
 	import { session } from '$lib/stores/session.svelte';
 	import { lobby } from '$lib/stores/lobby.svelte';
+	import { net } from '$lib/stores/net.svelte';
 	import Shape from './Shape.svelte';
 	import { SHAPE_COLORS } from './theme.js';
 	import Rules from './Rules.svelte';
 	import SignIn from './SignIn.svelte';
+	import NetBadge from './NetBadge.svelte';
+
+	// Measure connection once on landing (latency + throughput).
+	onMount(() => {
+		if (net.latency == null) net.measure(true);
+	});
 
 	type Section = 'play' | 'online' | 'friends' | 'profile';
 
@@ -37,6 +45,7 @@
 </script>
 
 <div class="menu">
+	<div class="net-corner"><NetBadge detail /></div>
 	<div class="hero">
 		<div class="hero-shapes">
 			{#each HERO_SHAPES as s (s)}
@@ -222,6 +231,12 @@
 		align-items: center;
 		padding: 2rem 1rem 7rem; /* room for the dock */
 		gap: 1.5rem;
+	}
+	.net-corner {
+		position: fixed;
+		top: 0.9rem;
+		right: 0.9rem;
+		z-index: 30;
 	}
 	.hero {
 		text-align: center;

@@ -14,6 +14,14 @@
 	import Confetti from './Confetti.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import TeeNobleIntro from './TeeNobleIntro.svelte';
+	import NetBadge from './NetBadge.svelte';
+	import { net } from '$lib/stores/net.svelte';
+
+	// Poll latency in the background while at the table; stop on unmount.
+	$effect(() => {
+		net.startPolling();
+		return () => net.stopPolling();
+	});
 
 	type Rect = { x: number; y: number; w: number; h: number };
 	type Flight = { id: number; card?: CardT; faceDown?: boolean; from: Rect; to: Rect };
@@ -170,10 +178,11 @@
 			<button class="ghost" onclick={() => game.toMenu()}>← Leave</button>
 			<div class="mode-chip">
 				<span class="mode">{view.mode === 'stack' ? 'Stack mode' : 'No-stack'}</span>
-				{#if !game.isTeeGame}<span class="diff">{game.difficultyLabel}</span>{/if}
+				{#if !game.isTeeGame}<span class="diff">{game.tableLabel}</span>{/if}
 				{#if game.isTeeGame}<span class="diff boss">Tee-Noble</span>{/if}
 			</div>
 			<div class="topbar-right">
+				<NetBadge />
 				<button
 					class="ghost icon"
 					onclick={toggleMute}
