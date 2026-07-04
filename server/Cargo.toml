@@ -34,6 +34,8 @@ chrono = { version = "0.4", features = ["serde"] }
 # Auth
 jsonwebtoken = "9"
 argon2       = "0.5"
+webauthn-rs  = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+url          = "2"
 
 # Validation
 validator = { version = "0.18", features = ["derive"] }

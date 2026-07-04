@@ -5,6 +5,7 @@ pub mod health;
 pub mod invites;
 pub mod matchmaking;
 pub mod notifications;
+pub mod passkey;
 pub mod rooms;
 pub mod users;
 pub mod ws;
@@ -62,6 +63,10 @@ fn auth_routes() -> Router<AppState> {
         .route("/reset-password", post(auth::reset_password))
         .route("/verify-email", post(auth::verify_email))
         .route("/resend-verification", post(auth::resend_verification))
+        .route("/passkey/register/start", post(passkey::register_start))
+        .route("/passkey/register/finish", post(passkey::register_finish))
+        .route("/passkey/login/start", post(passkey::login_start))
+        .route("/passkey/login/finish", post(passkey::login_finish))
         .layer(GovernorLayer { config: conf })
 }
 

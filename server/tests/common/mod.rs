@@ -31,6 +31,7 @@ pub fn test_config() -> Config {
 pub fn make_app(pool: PgPool) -> Router {
     let config = test_config();
     let redis_url = config.redis_url.clone();
+    let config_app_url = config.app_url.clone();
     let redis = redis::Client::open(redis_url.as_str()).expect("Redis client");
     let state = AppState {
         db: pool,
@@ -38,6 +39,16 @@ pub fn make_app(pool: PgPool) -> Router {
         redis,
         rooms: Arc::new(DashMap::new()),
         notify_txs: Arc::new(DashMap::new()),
+        webauthn: {
+            let rp_origin = url::Url::parse(&config_app_url).unwrap();
+            let rp_id = rp_origin.domain().unwrap_or("localhost").to_owned();
+            Arc::new(
+                webauthn_rs::WebauthnBuilder::new(&rp_id, &rp_origin)
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            )
+        },
     };
     let origin = "http://localhost:5173".parse().unwrap();
     make_router(state, origin)

@@ -1,3 +1,4 @@
+import { create, get, supported } from '@github/webauthn-json';
 import type { PublicUser, Session } from '$lib/api/types';
 
 export type SessionStatus = 'loading' | 'authed' | 'anon';
@@ -57,6 +58,49 @@ class SessionStore {
 		const data = await res.json().catch(() => ({}));
 		if (!res.ok) throw new ApiError(res.status, data?.error ?? data?.message ?? 'Upgrade failed');
 		this.user = data as PublicUser;
+	}
+
+	/** Whether this browser can do WebAuthn passkeys. */
+	get passkeysSupported(): boolean {
+		return typeof window !== 'undefined' && supported();
+	}
+
+	/** Add a passkey to the current account (claims a guest — no email needed). */
+	async addPasskey(): Promise<void> {
+		const startRes = await this.apiFetch('/api/auth/passkey/register/start', { method: 'POST' });
+		if (!startRes.ok) {
+			const d = await startRes.json().catch(() => ({}));
+			throw new ApiError(startRes.status, d?.error ?? 'Could not start passkey setup');
+		}
+		const options = await startRes.json();
+		const credential = await create(options); // biometric / security-key prompt
+		const finRes = await this.apiFetch('/api/auth/passkey/register/finish', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(credential)
+		});
+		if (!finRes.ok) {
+			const d = await finRes.json().catch(() => ({}));
+			throw new ApiError(finRes.status, d?.error ?? 'Could not save passkey');
+		}
+		if (this.user) this.user = { ...this.user, is_guest: false };
+	}
+
+	/** Sign in with a passkey. `login/start` is public; `finish` goes through the
+	 * SvelteKit route so the refresh cookie is set. */
+	async loginWithPasskey(username: string): Promise<void> {
+		const startRes = await fetch('/api/auth/passkey/login/start', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ username })
+		});
+		if (!startRes.ok) {
+			const d = await startRes.json().catch(() => ({}));
+			throw new ApiError(startRes.status, d?.error ?? 'No passkey for that account');
+		}
+		const options = await startRes.json();
+		const credential = await get(options); // biometric prompt
+		await this.#authCall('/auth/passkey-login', { username, credential });
 	}
 
 	async logout(): Promise<void> {

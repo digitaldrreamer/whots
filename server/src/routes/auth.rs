@@ -31,7 +31,7 @@ pub struct AuthResponse {
     pub refresh_token: String,
 }
 
-async fn issue_tokens(user: User, state: &AppState) -> Result<AuthResponse, AppError> {
+pub(crate) async fn issue_tokens(user: User, state: &AppState) -> Result<AuthResponse, AppError> {
     let access_token = encode_access_token(&user, &state.config).map_err(AppError::Internal)?;
 
     let (refresh_token, token_hash) = generate_token();

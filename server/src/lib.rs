@@ -77,12 +77,25 @@ pub async fn run() -> anyhow::Result<()> {
     let rooms: Arc<RoomRegistry> = Arc::new(DashMap::new());
     let notify_txs: Arc<NotifyTxMap> = Arc::new(DashMap::new());
 
+    // WebAuthn (passkeys). RP id = the bare domain; origin = the full app URL.
+    let rp_origin = url::Url::parse(&config.app_url)?;
+    let rp_id = rp_origin
+        .domain()
+        .ok_or_else(|| anyhow::anyhow!("APP_URL has no domain for the passkey RP id"))?;
+    let webauthn = Arc::new(
+        webauthn_rs::WebauthnBuilder::new(rp_id, &rp_origin)?
+            .rp_name("Whot!")
+            .build()?,
+    );
+    tracing::info!(%rp_id, "WebAuthn ready");
+
     let state = AppState {
         db,
         config: Arc::new(config),
         redis,
         rooms: Arc::clone(&rooms),
         notify_txs: Arc::clone(&notify_txs),
+        webauthn,
     };
 
     tokio::spawn(cleanup_task(

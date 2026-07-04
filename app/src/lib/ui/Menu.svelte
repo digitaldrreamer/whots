@@ -39,6 +39,24 @@
 		}
 	}
 
+	// Add a passkey (email-free account claim / passwordless device).
+	let pkBusy = $state(false);
+	let pkError = $state<string | null>(null);
+	let pkDone = $state(false);
+	async function addPasskey() {
+		pkBusy = true;
+		pkError = null;
+		try {
+			await session.addPasskey();
+			pkDone = true;
+			setTimeout(() => (pkDone = false), 2500);
+		} catch (e) {
+			pkError = e instanceof Error ? e.message : 'Could not add passkey.';
+		} finally {
+			pkBusy = false;
+		}
+	}
+
 	// Guest → full account upgrade.
 	let upEmail = $state('');
 	let upPassword = $state('');
@@ -226,8 +244,14 @@
 							</span>
 							<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
 						</div>
+						{#if session.passkeysSupported}
+							<button class="online room" onclick={addPasskey} disabled={pkBusy}>
+								{pkBusy ? '…' : pkDone ? '✓ Passkey saved' : '🔑 Add a passkey (no email)'}
+							</button>
+							{#if pkError}<span class="err">{pkError}</span>{/if}
+						{/if}
 						{#if session.user.is_guest}
-							<span class="hint">You're a guest. Add an email + password so you can log back in later.</span>
+							<span class="hint">You're a guest. Add a passkey above (no email needed), or an email + password, so you can log back in.</span>
 							{#if showUpgrade}
 								<div class="upgrade">
 									<input type="email" placeholder="Email" bind:value={upEmail} disabled={upBusy} />

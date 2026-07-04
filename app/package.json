@@ -32,6 +32,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
-		"@cloudflare/speedtest": "^1.10.1"
+		"@cloudflare/speedtest": "^1.10.1",
+		"@github/webauthn-json": "^2.1.1"
 	}
 }

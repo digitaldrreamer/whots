@@ -52,6 +52,13 @@
 			await forgotPassword(forgotEmail.trim());
 			forgotSent = true;
 		});
+	const passkeyLogin = () => {
+		if (!identifier.trim()) {
+			error = 'Enter your username to use a passkey.';
+			return;
+		}
+		return run(() => session.loginWithPasskey(identifier.trim()));
+	};
 	const register = () => {
 		const err = usernameError(username.trim());
 		if (err) {
@@ -98,6 +105,9 @@
 			<input type="password" placeholder="Password" bind:value={password} disabled={busy}
 				onkeydown={(e) => e.key === 'Enter' && login()} />
 			<button class="go" onclick={login} disabled={busy}>{busy ? '…' : 'Log in'}</button>
+			{#if session.passkeysSupported}
+				<button class="go passkey" onclick={passkeyLogin} disabled={busy}>🔑 Sign in with a passkey</button>
+			{/if}
 			<button class="linkbtn forgot" onclick={() => (forgotMode = true)}>Forgot password?</button>
 		{/if}
 	{:else}
@@ -179,6 +189,11 @@
 	.err {
 		font-size: 0.78rem;
 		color: #ff8fa3;
+	}
+	.go.passkey {
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.18);
+		color: #fff;
 	}
 	.linkbtn {
 		background: none;
