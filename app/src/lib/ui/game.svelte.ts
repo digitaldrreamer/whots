@@ -170,9 +170,15 @@ export class GameController {
 	#markPending(): void {
 		this.pending = true;
 		if (this.#pendingTimer) clearTimeout(this.#pendingTimer);
-		// Safety net: if no state/error comes back (dropped packet), unlock so the
-		// player can retry instead of being stuck.
-		this.#pendingTimer = setTimeout(() => (this.pending = false), 5000);
+		// Safety net: if no ack comes back in time the connection is likely bad and
+		// our move is buffered in a stalled socket. Don't just unlock — that lets the
+		// player tap again, buffering MORE sends that all replay on reconnect. Instead
+		// force a fresh socket: it discards the buffered send and the server re-pushes
+		// authoritative state, which clears `pending` and rolls back the optimistic play.
+		this.#pendingTimer = setTimeout(() => {
+			if (!this.pending) return;
+			this.#socket?.reconnect();
+		}, 5000);
 	}
 
 	#clearPending(): void {

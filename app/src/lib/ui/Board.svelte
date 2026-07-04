@@ -293,7 +293,10 @@
 
 		{#if showLog}
 			<aside class="log">
-				<h3>Play-by-play</h3>
+				<header class="log-head">
+					<h3>Play-by-play</h3>
+					<button class="log-close" onclick={() => (showLog = false)} aria-label="Close log">✕</button>
+				</header>
 				<ul>
 					{#each [...game.log].reverse() as entry (entry.id)}
 						<li class={entry.who}>{entry.text}</li>
@@ -676,10 +679,32 @@
 		z-index: 20;
 		box-shadow: -10px 0 40px rgba(0, 0, 0, 0.4);
 	}
+	.log-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
 	.log h3 {
-		margin: 0 0 0.75rem;
+		margin: 0;
 		color: var(--gold, #e8b84b);
 		font-size: 0.95rem;
+	}
+	.log-close {
+		flex: none;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		background: rgba(255, 255, 255, 0.06);
+		color: #fff;
+		font-size: 0.9rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.log-close:active {
+		background: rgba(255, 255, 255, 0.14);
 	}
 	.log ul {
 		list-style: none;

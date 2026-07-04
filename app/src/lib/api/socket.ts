@@ -73,6 +73,29 @@ export class GameSocket {
 		}
 	}
 
+	/**
+	 * Force a fresh socket: drop the current one (discarding any buffered sends
+	 * that would otherwise replay later) and reopen. The server re-sends the
+	 * authoritative game state on connect, so the client re-syncs cleanly.
+	 */
+	reconnect(): void {
+		if (this.#closed) return;
+		const ws = this.#ws;
+		this.#ws = null;
+		if (ws) {
+			ws.onclose = null; // don't let the old socket schedule its own reconnect
+			ws.onerror = null;
+			ws.onmessage = null;
+			try {
+				ws.close();
+			} catch {
+				/* already closing */
+			}
+		}
+		this.#reconnects = 0;
+		this.#open();
+	}
+
 	close(): void {
 		this.#closed = true;
 		this.#ws?.close();
