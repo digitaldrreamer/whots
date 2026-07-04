@@ -1,4 +1,4 @@
-import { GameSocket } from '$lib/api/socket';
+import { GameSocket, type SocketStatus } from '$lib/api/socket';
 import { createGame } from '$lib/api/games';
 import { canPlay, sameCard } from '$lib/api/rules';
 import { session } from '$lib/stores/session.svelte';
@@ -120,6 +120,15 @@ export class GameController {
 	#pendingTimer: ReturnType<typeof setTimeout> | null = null;
 	#flightId = 0;
 	#winStreak = 0;
+
+	// Inbound pacing. A laggy link buffers the server's already-spaced broadcasts
+	// and TCP hands them over in one burst; applied as-is they'd all render in a
+	// single frame (one snap, animations/sounds skipped or firing at once). Queue
+	// them and drain one move at a time with a minimum readable gap. A single event
+	// on an idle queue still applies immediately, so normal play stays instant.
+	#queue: Exclude<ServerEvent, { type: 'error' }>[] = [];
+	#draining = false;
+	#drainTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -446,9 +455,17 @@ export class GameController {
 			gameId,
 			token,
 			onEvent: (ev) => this.#onEvent(ev),
-			onStatus: (s) => (this.connection = s === 'open' ? 'open' : s === 'error' ? 'error' : s === 'closed' ? 'closed' : 'connecting')
+			onStatus: (s) => this.#onStatus(s)
 		});
 		this.#socket.connect();
+	}
+
+	#onStatus(s: SocketStatus): void {
+		this.connection = s === 'open' ? 'open' : s === 'error' ? 'error' : s === 'closed' ? 'closed' : 'connecting';
+		// Any (re)connection means the server re-pushes authoritative state. Drop
+		// any stale queued frames so we don't animate toward an out-of-date board
+		// after a resync (e.g. the reconnect our bad-network fix triggers).
+		if (s !== 'open') this.#flushQueue();
 	}
 
 	toMenu(): void {
@@ -465,26 +482,71 @@ export class GameController {
 	// ── Server events ───────────────────────────────────────────────────────────────
 
 	#onEvent(ev: ServerEvent): void {
+		// Errors surface immediately — they're about the local player's own move and
+		// shouldn't wait behind paced opponent frames.
+		if (ev.type === 'error') {
+			this.#clearPending();
+			this.error = ev.message;
+			this.#pushLog('system', ev.message);
+			return;
+		}
+		// Real-time signaling (deferred) must never sit behind the animation queue.
+		if (ev.type === 'rtc_signal' || ev.type === 'chat_message') return; // handled elsewhere
+		// Game frames render through the pace queue so a burst of buffered updates
+		// plays out one move at a time instead of all snapping at once.
+		this.#queue.push(ev);
+		if (!this.#draining) this.#drain();
+	}
+
+	#drain(): void {
+		const ev = this.#queue.shift();
+		if (ev === undefined) {
+			this.#draining = false;
+			this.#drainTimer = null;
+			return;
+		}
+		this.#draining = true;
+		const remaining = this.#queue.length;
+		// A deep backlog means a long stall — don't force the player to sit through
+		// every frame animating. Fast-forward the stale ones silently; the newest
+		// (drained once the queue shrinks) still animates normally.
+		const collapse = remaining > 8;
+		this.#applyEvent(ev, !collapse);
+		if (this.#queue.length === 0) {
+			this.#draining = false;
+			this.#drainTimer = null;
+			return;
+		}
+		// Minimum readable gap, shrinking as the queue deepens so we catch up.
+		const gap = collapse ? 40 : remaining > 4 ? 140 : 480;
+		this.#drainTimer = setTimeout(() => this.#drain(), gap);
+	}
+
+	#applyEvent(ev: Exclude<ServerEvent, { type: 'error' }>, animate: boolean): void {
 		switch (ev.type) {
 			case 'game_state':
-				this.#applyView(ev.state);
+				this.#applyView(ev.state, animate);
 				break;
 			case 'game_over':
 				this.#onGameOver();
 				break;
-			case 'error':
-				this.#clearPending();
-				this.error = ev.message;
-				this.#pushLog('system', ev.message);
-				break;
 			case 'table_talk':
-				this.#showTableTalk(ev.seat, ev.text);
+				if (animate) this.#showTableTalk(ev.seat, ev.text);
 				break;
 			// chat / rtc_signal handled elsewhere (deferred)
 		}
 	}
 
-	#applyView(next: GameStateView): void {
+	#flushQueue(): void {
+		this.#queue = [];
+		this.#draining = false;
+		if (this.#drainTimer) {
+			clearTimeout(this.#drainTimer);
+			this.#drainTimer = null;
+		}
+	}
+
+	#applyView(next: GameStateView, animate = true): void {
 		const prev = this.#prev;
 		// New state arrived — the server processed our (or someone's) move, so the
 		// in-flight lock and any stale card selection are done.
@@ -497,8 +559,12 @@ export class GameController {
 		}
 		this.view = next;
 
-		if (prev) this.#deriveFeedback(prev, next);
-		this.#checkLastCard(prev, next);
+		// Feedback (flight animation, callouts, sounds) only for frames we're
+		// actually animating; collapsed catch-up frames set state silently.
+		if (animate) {
+			if (prev) this.#deriveFeedback(prev, next);
+			this.#checkLastCard(prev, next);
+		}
 		this.#prev = next;
 
 		if (next.phase === 'finished') this.#onGameOver();
@@ -758,6 +824,7 @@ export class GameController {
 		this.selected = [];
 		this.error = null;
 		this.#clearPending();
+		this.#flushQueue();
 	}
 
 	#say(text: string, tone: AnnounceTone, sub?: string): void {
