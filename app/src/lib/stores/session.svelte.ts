@@ -47,6 +47,18 @@ class SessionStore {
 		await this.#authCall('/auth/register', { username, email, password });
 	}
 
+	/** Claim a guest account: add email + password (keeps username, friends, id). */
+	async upgradeGuest(email: string, password: string): Promise<void> {
+		const res = await this.apiFetch('/api/auth/upgrade', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ email, password })
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) throw new ApiError(res.status, data?.error ?? data?.message ?? 'Upgrade failed');
+		this.user = data as PublicUser;
+	}
+
 	async logout(): Promise<void> {
 		const headers: Record<string, string> = {};
 		if (this.#accessToken) headers.authorization = `Bearer ${this.#accessToken}`;

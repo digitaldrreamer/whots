@@ -5,6 +5,7 @@
 	import Result from '$lib/ui/Result.svelte';
 	import InvitePrompt from '$lib/ui/InvitePrompt.svelte';
 	import RoomComposer from '$lib/ui/RoomComposer.svelte';
+	import AuthGate from '$lib/ui/AuthGate.svelte';
 </script>
 
 <svelte:head>
@@ -30,9 +31,10 @@
 	{/if}
 {/if}
 
-<!-- Global overlays: game invites + toasts + room composer, on every screen -->
+<!-- Global overlays: game invites + toasts + room composer + sign-in gate -->
 <InvitePrompt />
 <RoomComposer />
+<AuthGate />
 
 <style>
 	.connecting {

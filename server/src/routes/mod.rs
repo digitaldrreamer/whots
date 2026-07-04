@@ -54,6 +54,7 @@ fn auth_routes() -> Router<AppState> {
     Router::new()
         .route("/guest", post(auth::guest))
         .route("/register", post(auth::register))
+        .route("/upgrade", post(auth::upgrade))
         .route("/login", post(auth::login))
         .route("/refresh", post(auth::refresh))
         .route("/logout", delete(auth::logout))

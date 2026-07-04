@@ -11,9 +11,10 @@
 	import SignIn from './SignIn.svelte';
 	import NetBadge from './NetBadge.svelte';
 
-	// Measure connection once on landing (latency + throughput).
+	// Measure *latency only* on landing — fast and tiny, so it never janks the
+	// page. Tapping the badge runs the full download/upload test on demand.
 	onMount(() => {
-		if (net.latency == null) net.measure(true);
+		if (net.latency == null) net.measure(false);
 	});
 
 	type Section = 'play' | 'online' | 'friends' | 'profile';
@@ -35,6 +36,27 @@
 			setTimeout(() => (copied = false), 1500);
 		} catch {
 			/* clipboard blocked — the link is selectable in the field */
+		}
+	}
+
+	// Guest → full account upgrade.
+	let upEmail = $state('');
+	let upPassword = $state('');
+	let upBusy = $state(false);
+	let upError = $state<string | null>(null);
+	let showUpgrade = $state(false);
+	async function upgrade() {
+		upBusy = true;
+		upError = null;
+		try {
+			await session.upgradeGuest(upEmail.trim(), upPassword);
+			showUpgrade = false;
+			upEmail = '';
+			upPassword = '';
+		} catch (e) {
+			upError = e instanceof Error ? e.message : 'Could not upgrade.';
+		} finally {
+			upBusy = false;
 		}
 	}
 
@@ -205,7 +227,27 @@
 							<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
 						</div>
 						{#if session.user.is_guest}
-							<span class="hint">You're a guest — register to keep your friends.</span>
+							<span class="hint">You're a guest. Add an email + password so you can log back in later.</span>
+							{#if showUpgrade}
+								<div class="upgrade">
+									<input type="email" placeholder="Email" bind:value={upEmail} disabled={upBusy} />
+									<input
+										type="password"
+										placeholder="Password (min 8)"
+										bind:value={upPassword}
+										disabled={upBusy}
+									/>
+									<div class="up-actions">
+										<button class="online" onclick={upgrade} disabled={upBusy}
+											>{upBusy ? '…' : 'Save account'}</button
+										>
+										<button class="linkbtn" onclick={() => (showUpgrade = false)}>Cancel</button>
+									</div>
+									{#if upError}<span class="err">{upError}</span>{/if}
+								</div>
+							{:else}
+								<button class="online" onclick={() => (showUpgrade = true)}>Upgrade account</button>
+							{/if}
 						{/if}
 					</div>
 				{:else if session.status === 'loading'}
@@ -437,6 +479,28 @@
 		color: rgba(255, 255, 255, 0.4);
 		font-size: 0.85rem;
 		margin: 0;
+	}
+	.upgrade {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		margin-top: 0.3rem;
+	}
+	.upgrade input {
+		padding: 0.55rem 0.7rem;
+		border-radius: 10px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(255, 255, 255, 0.04);
+		color: #fff;
+		font-size: 0.88rem;
+	}
+	.up-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+	.up-actions .online {
+		padding: 0.5rem 0.9rem;
 	}
 	.invite-link {
 		display: flex;

@@ -71,21 +71,33 @@ pub async fn guest(
     body.validate()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
-        .bind(&body.username)
-        .fetch_one(&state.db)
-        .await?;
-
-    if taken {
-        return Err(AppError::Conflict("username already taken".into()));
+    // A taken name never blocks play: keep the typed name as the display name and
+    // suffix the (unique) username on collision, e.g. "wale" -> "wale-4821".
+    let base: String = body.username.chars().take(24).collect();
+    let mut username = body.username.clone();
+    for attempt in 0..40 {
+        let taken: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
+                .bind(&username)
+                .fetch_one(&state.db)
+                .await?;
+        if !taken {
+            break;
+        }
+        if attempt == 39 {
+            return Err(AppError::Conflict("could not allocate a guest name".into()));
+        }
+        let n: u32 = rand::random::<u32>() % 10000;
+        username = format!("{base}-{n}");
     }
 
-    let avatar = dicebear_url(&body.username);
+    let avatar = dicebear_url(&username);
     let user = sqlx::query_as::<_, User>(
         "INSERT INTO users (username, display_name, avatar_url, is_guest)
-         VALUES ($1, $1, $2, TRUE) RETURNING *",
+         VALUES ($1, $2, $3, TRUE) RETURNING *",
     )
-    .bind(&body.username)
+    .bind(&username)
+    .bind(&body.username) // display name = what they typed
     .bind(avatar)
     .fetch_one(&state.db)
     .await?;
@@ -139,6 +151,49 @@ pub async fn register(
 
     let tokens = issue_tokens(user, &state).await?;
     Ok((StatusCode::CREATED, Json(tokens)))
+}
+
+// ── POST /auth/upgrade ─────────────────────────────────────────────────────────
+// A signed-in guest claims their account: add email + password and become a real
+// account they can log into later. Keeps the same user id, username, and friends.
+
+#[derive(Deserialize, Validate)]
+pub struct UpgradeRequest {
+    #[validate(email)]
+    pub email: String,
+    #[validate(length(min = 8, max = 128))]
+    pub password: String,
+}
+
+pub async fn upgrade(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Json(body): Json<UpgradeRequest>,
+) -> Result<Json<PublicUser>, AppError> {
+    body.validate()
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let password_hash = hash_password(&body.password).map_err(AppError::Internal)?;
+
+    let user = sqlx::query_as::<_, User>(
+        "UPDATE users SET email = $2, password_hash = $3, is_guest = FALSE
+         WHERE id = $1 AND is_guest = TRUE RETURNING *",
+    )
+    .bind(claims.sub)
+    .bind(body.email.to_lowercase())
+    .bind(password_hash)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        if e.to_string().contains("unique") {
+            AppError::Conflict("that email is already registered".into())
+        } else {
+            AppError::Internal(e.into())
+        }
+    })?
+    .ok_or_else(|| AppError::BadRequest("this account is already registered".into()))?;
+
+    send_verification_for(&user, &state).await;
+    Ok(Json(user.into()))
 }
 
 async fn send_verification_for(user: &User, state: &AppState) {
