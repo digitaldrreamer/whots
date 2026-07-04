@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "sweepsCompleted": 1,
+    "gamesPerEval": 10,
+    "savedAt": "2026-06-20T13:08:55.638Z",
+    "bestGlobalScore": 0.3330474296562158
+  },
+  "params": {
+    "pikin": {
+      "handThinning": 0,
+      "actionAwareness": 0,
+      "threatDetection": 0,
+      "cardProbability": 0,
+      "whotIntelligence": 0,
+      "setupPlays": 0,
+      "anticipation": 0,
+      "noise": 100,
+      "bluffRate": 0
+    },
+    "smallz": {
+      "handThinning": 1,
+      "actionAwareness": 0,
+      "threatDetection": 0,
+      "cardProbability": 0,
+      "whotIntelligence": 0,
+      "setupPlays": 0,
+      "anticipation": 0,
+      "noise": 0.1,
+      "bluffRate": 0
+    },
+    "isabiSmall": {
+      "handThinning": 1.15,
+      "actionAwareness": 1,
+      "threatDetection": 0.15,
+      "cardProbability": 0,
+      "whotIntelligence": 0,
+      "setupPlays": 0,
+      "anticipation": 0,
+      "noise": 0.1,
+      "bluffRate": 0
+    },
+    "chief": {
+      "handThinning": 0.85,
+      "actionAwareness": 1.2999999999999998,
+      "threatDetection": 1,
+      "cardProbability": 0,
+      "whotIntelligence": 0,
+      "setupPlays": 0,
+      "anticipation": 0,
+      "noise": 0.1,
+      "bluffRate": 0
+    },
+    "egbon": {
+      "handThinning": 1,
+      "actionAwareness": 1,
+      "threatDetection": 0.85,
+      "cardProbability": 1,
+      "whotIntelligence": 0.85,
+      "setupPlays": 1,
+      "anticipation": 0,
+      "noise": 0.1,
+      "bluffRate": 0
+    },
+    "jagaban": {
+      "handThinning": 1,
+      "actionAwareness": 1,
+      "threatDetection": 1,
+      "cardProbability": 1,
+      "whotIntelligence": 1,
+      "setupPlays": 1,
+      "anticipation": 1,
+      "noise": 0.05,
+      "bluffRate": 0
+    },
+    "tee-noble": {
+      "handThinning": 1,
+      "actionAwareness": 1,
+      "threatDetection": 1,
+      "cardProbability": 1,
+      "whotIntelligence": 1,
+      "setupPlays": 1,
+      "anticipation": 1,
+      "noise": 0.02,
+      "bluffRate": 0
+    }
+  }
+}

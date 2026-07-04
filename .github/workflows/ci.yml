@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+jobs:
+  test:
+    name: check · clippy · test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: whots_test
+          POSTGRES_USER: whots
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server -> target
+
+      - name: fmt
+        working-directory: server
+        run: cargo fmt --check
+
+      - name: check
+        working-directory: server
+        run: cargo check
+
+      - name: clippy
+        working-directory: server
+        run: cargo clippy -- -D warnings
+
+      - name: test
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://whots:test@localhost:5432/whots_test
+          REDIS_URL: redis://localhost:6379/
+          JWT_SECRET: ci-test-secret-at-least-32-chars-long
+        run: cargo test

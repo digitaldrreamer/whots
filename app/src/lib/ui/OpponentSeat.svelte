@@ -1,0 +1,132 @@
+<script lang="ts">
+	import type { Player } from '$lib/game/types.js';
+	import Card from './Card.svelte';
+
+	let {
+		player,
+		active,
+		thinking,
+		seatIndex
+	}: { player: Player; active: boolean; thinking: boolean; seatIndex: number } = $props();
+
+	const count = $derived(player.hand.length);
+	const fan = $derived(Math.min(count, 6));
+	const isTee = $derived(player.kind === 'tee-noble');
+</script>
+
+<div class="seat" class:active class:tee={isTee} data-seat={seatIndex}>
+	<div class="fan" style:--n={fan}>
+		{#each Array.from({ length: fan }, (_, idx) => idx) as i (i)}
+			<div class="fslot" style:--i={i}>
+				<Card faceDown size="sm" />
+			</div>
+		{/each}
+		{#if count === 0}
+			<div class="empty">—</div>
+		{/if}
+	</div>
+	<div class="info">
+		<span class="name">
+			{#if isTee}👑
+			{/if}{player.name}
+		</span>
+		<span class="count">{count} card{count === 1 ? '' : 's'}</span>
+	</div>
+	{#if thinking}
+		<div class="thinking">
+			<span class="dot"></span><span class="dot"></span><span class="dot"></span>
+		</div>
+	{/if}
+</div>
+
+<style>
+	.seat {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.6rem 0.8rem;
+		border-radius: 14px;
+		border: 1.5px solid transparent;
+		transition:
+			border-color 0.2s,
+			background 0.2s,
+			box-shadow 0.2s;
+		position: relative;
+	}
+	.seat.active {
+		border-color: var(--gold, #e8b84b);
+		background: rgba(232, 184, 75, 0.08);
+		box-shadow: 0 0 22px rgba(232, 184, 75, 0.18);
+	}
+	.seat.tee.active {
+		border-color: #ff5470;
+		background: rgba(255, 84, 112, 0.1);
+		box-shadow: 0 0 26px rgba(255, 84, 112, 0.28);
+	}
+	.fan {
+		position: relative;
+		height: 66px;
+		width: calc(46px + (var(--n) - 1) * 16px);
+		min-width: 46px;
+	}
+	.fslot {
+		position: absolute;
+		left: calc(var(--i) * 16px);
+		top: 0;
+	}
+	.empty {
+		color: rgba(255, 255, 255, 0.35);
+		font-size: 1.4rem;
+		line-height: 66px;
+	}
+	.info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		line-height: 1.2;
+	}
+	.name {
+		font-weight: 700;
+		color: #fff;
+		font-size: 0.95rem;
+	}
+	.tee .name {
+		color: #ff8fa3;
+	}
+	.count {
+		font-size: 0.78rem;
+		color: rgba(255, 255, 255, 0.6);
+	}
+	.thinking {
+		position: absolute;
+		bottom: -14px;
+		display: flex;
+		gap: 4px;
+	}
+	.dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--gold, #e8b84b);
+		animation: bounce 1s infinite ease-in-out;
+	}
+	.dot:nth-child(2) {
+		animation-delay: 0.15s;
+	}
+	.dot:nth-child(3) {
+		animation-delay: 0.3s;
+	}
+	@keyframes bounce {
+		0%,
+		60%,
+		100% {
+			transform: translateY(0);
+			opacity: 0.5;
+		}
+		30% {
+			transform: translateY(-6px);
+			opacity: 1;
+		}
+	}
+</style>
