@@ -16,7 +16,7 @@ use crate::{
     auth::WsAuthUser,
     error::AppError,
     game::{
-        ai::select_move,
+        ai::{apply_ai_move, select_move, AiMove},
         engine::{apply_action, apply_stack, make_view, GameError},
         types::{Action, GamePhase, GameState, GameStateView, SeatKind, Shape},
     },
@@ -153,12 +153,12 @@ pub async fn run_game_driver(
                 // ISMCTS is CPU-bound (up to ~200ms for TeeNoble); run it off the
                 // async worker so it doesn't stall other games on this thread.
                 let snapshot = state.clone();
-                let action = tokio::task::spawn_blocking(move || {
+                let mv = tokio::task::spawn_blocking(move || {
                     select_move(&snapshot, seat_idx, difficulty)
                 })
                 .await
-                .unwrap_or(Action::Draw);
-                if let Err(e) = apply_action(&mut state, seat_idx, action) {
+                .unwrap_or(AiMove::Act(Action::Draw));
+                if let Err(e) = apply_ai_move(&mut state, seat_idx, mv) {
                     tracing::error!(%game_id, seat = seat_idx, "AI invalid move: {e}");
                     let _ = apply_action(&mut state, seat_idx, Action::Draw);
                 }

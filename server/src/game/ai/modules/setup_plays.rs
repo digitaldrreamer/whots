@@ -20,6 +20,12 @@ pub fn setup_plays(candidate: &Candidate, ctx: &ModuleContext<'_>) -> f64 {
             shape: *shape,
             value: *value,
         },
+        // Groups are scored via their representative single in params.rs, so this
+        // module never actually receives one; treat it as its top card anyway.
+        Candidate::PlayGroup { value, top_shape, .. } => TopCard::Suit {
+            shape: *top_shape,
+            value: *value,
+        },
         Candidate::PlayWhot { called_shape } => TopCard::Whot {
             called_shape: *called_shape,
         },

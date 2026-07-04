@@ -1,11 +1,33 @@
-use crate::game::types::{GameState, Shape};
+use crate::game::types::{Action, GameState, Shape};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Candidate {
-    PlaySuit { shape: Shape, value: u8 },
-    PlayWhot { called_shape: Shape },
+    PlaySuit {
+        shape: Shape,
+        value: u8,
+    },
+    /// Play *all* same-number cards of `value` in one turn (stack mode). `count`
+    /// is how many will be played; `top_shape` is a legal lead's shape (used to
+    /// score the group as its representative single).
+    PlayGroup {
+        value: u8,
+        count: u8,
+        top_shape: Shape,
+    },
+    PlayWhot {
+        called_shape: Shape,
+    },
     Draw,
+}
+
+/// A resolved AI move. `Stack` plays every same-number card of `value` from the
+/// acting seat's hand (shapes reconstructed at apply time), keeping this enum
+/// `Copy` and cheap inside the search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiMove {
+    Act(Action),
+    Stack { value: u8 },
 }
 
 pub struct ModuleContext<'a> {

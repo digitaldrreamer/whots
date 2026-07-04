@@ -12,7 +12,7 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use whots_server::game::{
-    ai::ismcts::{act, policy_for, strong_rollout_params, Budget, Policy},
+    ai::ismcts::{act, apply_ai_move, policy_for, strong_rollout_params, Budget, Policy},
     engine::{apply_action, create_game},
     types::{Action, Difficulty, GameMode, GamePhase, Seat, SeatKind},
 };
@@ -66,7 +66,7 @@ fn play(a: Difficulty, b: Difficulty, a_first: bool, rng: &mut StdRng) -> Option
         let idx = state.current_seat_index;
         let policy = if idx == 0 { &p0 } else { &p1 };
         let action = act(&state, idx, policy, rng);
-        if apply_action(&mut state, idx, action).is_err() {
+        if apply_ai_move(&mut state, idx, action).is_err() {
             let _ = apply_action(&mut state, idx, Action::Draw);
         }
     }
@@ -122,7 +122,7 @@ fn play_pol(p0: &Policy, p1: &Policy, a_first: bool, rng: &mut StdRng) -> Option
         let idx = state.current_seat_index;
         let policy = if idx == 0 { q0 } else { q1 };
         let action = act(&state, idx, policy, rng);
-        if apply_action(&mut state, idx, action).is_err() {
+        if apply_ai_move(&mut state, idx, action).is_err() {
             let _ = apply_action(&mut state, idx, Action::Draw);
         }
     }

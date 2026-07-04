@@ -5,7 +5,7 @@ use crate::game::{
             action_awareness, anticipation, card_probability, hand_thinning, setup_plays,
             threat_detection, whot_intelligence,
         },
-        types::{Candidate, ModuleContext},
+        types::{AiMove, Candidate, ModuleContext},
     },
     types::{Action, Difficulty, GameState},
 };
@@ -109,12 +109,7 @@ fn gaussian_noise(sigma: f64, rng: &mut impl Rng) -> f64 {
     sigma * (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 
-fn score(
-    candidate: &Candidate,
-    ctx: &ModuleContext<'_>,
-    p: &DifficultyParams,
-    rng: &mut impl Rng,
-) -> f64 {
+fn base_score(candidate: &Candidate, ctx: &ModuleContext<'_>, p: &DifficultyParams) -> f64 {
     hand_thinning(candidate, ctx) * p.hand_thinning
         + action_awareness(candidate, ctx) * p.action_awareness
         + threat_detection(candidate, ctx) * p.threat_detection
@@ -122,19 +117,48 @@ fn score(
         + whot_intelligence(candidate, ctx) * p.whot_intelligence
         + setup_plays(candidate, ctx) * p.setup_plays
         + anticipation(candidate, ctx) * p.anticipation
-        + gaussian_noise(p.noise, rng)
 }
 
-fn candidate_to_action(c: Candidate) -> Action {
+fn score(
+    candidate: &Candidate,
+    ctx: &ModuleContext<'_>,
+    p: &DifficultyParams,
+    rng: &mut impl Rng,
+) -> f64 {
+    let base = match candidate {
+        // The modules only understand single cards, so score a group as its
+        // representative single plus the incremental value of shedding/piling
+        // the extra same-number cards (scaled by the tuned weights).
+        Candidate::PlayGroup {
+            value,
+            count,
+            top_shape,
+        } => {
+            let single = Candidate::PlaySuit {
+                shape: *top_shape,
+                value: *value,
+            };
+            let extra = (*count as f64 - 1.0).max(0.0);
+            base_score(&single, ctx, p)
+                + p.hand_thinning * extra * 1.5
+                + p.action_awareness * action_awareness(&single, ctx) * extra * 0.5
+        }
+        _ => base_score(candidate, ctx, p),
+    };
+    base + gaussian_noise(p.noise, rng)
+}
+
+fn candidate_to_aimove(c: Candidate) -> AiMove {
     match c {
-        Candidate::Draw => Action::Draw,
-        Candidate::PlaySuit { shape, value } => Action::PlaySuit { shape, value },
-        Candidate::PlayWhot { called_shape } => Action::PlayWhot { called_shape },
+        Candidate::Draw => AiMove::Act(Action::Draw),
+        Candidate::PlaySuit { shape, value } => AiMove::Act(Action::PlaySuit { shape, value }),
+        Candidate::PlayWhot { called_shape } => AiMove::Act(Action::PlayWhot { called_shape }),
+        Candidate::PlayGroup { value, .. } => AiMove::Stack { value },
     }
 }
 
 /// Select move using default params for a difficulty level
-pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty) -> Action {
+pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty) -> AiMove {
     let params = default_params(difficulty);
     select_move_with_params(state, seat_index, &params)
 }
@@ -144,10 +168,10 @@ pub fn select_move_with_params(
     state: &GameState,
     seat_index: usize,
     params: &DifficultyParams,
-) -> Action {
+) -> AiMove {
     let candidates = build_candidates(state, seat_index);
     if candidates.iter().all(|c| matches!(c, Candidate::Draw)) {
-        return Action::Draw;
+        return AiMove::Act(Action::Draw);
     }
 
     let ctx = build_context(state, seat_index, candidates.clone());
@@ -166,7 +190,7 @@ pub fn select_move_with_params(
             scored[0].0
         };
 
-    candidate_to_action(chosen)
+    candidate_to_aimove(chosen)
 }
 
 /// Select the *worst*-scoring legal move per the heuristic — used to build a
@@ -176,10 +200,10 @@ pub fn select_worst_move_with_params(
     state: &GameState,
     seat_index: usize,
     params: &DifficultyParams,
-) -> Action {
+) -> AiMove {
     let candidates = build_candidates(state, seat_index);
     if candidates.iter().all(|c| matches!(c, Candidate::Draw)) {
-        return Action::Draw;
+        return AiMove::Act(Action::Draw);
     }
 
     let ctx = build_context(state, seat_index, candidates.clone());
@@ -192,7 +216,7 @@ pub fn select_worst_move_with_params(
         .map(|(c, _)| c)
         .unwrap_or(Candidate::Draw);
 
-    candidate_to_action(worst)
+    candidate_to_aimove(worst)
 }
 
 /// Make DifficultyParams public constructors

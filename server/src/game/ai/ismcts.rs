@@ -28,12 +28,31 @@ use crate::game::{
     ai::{
         context::build_candidates,
         params::{select_move_with_params, select_worst_move_with_params, DifficultyParams},
-        types::Candidate,
+        types::{AiMove, Candidate},
     },
     deck::create_deck,
-    engine::apply_action,
-    types::{Action, Card, Difficulty, GamePhase, GameState},
+    engine::{apply_action, apply_stack, GameError},
+    types::{Action, Card, Difficulty, GamePhase, GameState, Shape},
 };
+
+/// Resolve an [`AiMove`] against the game state. A `Stack` plays every
+/// same-number card of `value` in the acting hand (shapes read from the hand).
+pub fn apply_ai_move(state: &mut GameState, seat: usize, mv: AiMove) -> Result<(), GameError> {
+    match mv {
+        AiMove::Act(action) => apply_action(state, seat, action),
+        AiMove::Stack { value } => {
+            let shapes: Vec<Shape> = state.seats[seat]
+                .hand
+                .iter()
+                .filter_map(|c| match c {
+                    Card::Suit { shape, value: v } if *v == value => Some(*shape),
+                    _ => None,
+                })
+                .collect();
+            apply_stack(state, seat, value, &shapes)
+        }
+    }
+}
 
 /// Hard cap on plies simulated in a single rollout, guards against pathological
 /// non-terminating games (everyone drawing forever).
@@ -175,7 +194,7 @@ pub fn policy_for(difficulty: Difficulty) -> Policy {
 /// Select a move for `seat_index` at the given difficulty (production entry).
 /// TeeNoble runs under a wall-clock budget here so live latency is bounded
 /// regardless of hardware; all other rungs use their calibrated iteration count.
-pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty) -> Action {
+pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty) -> AiMove {
     let mut rng = rand::thread_rng();
     let mut policy = policy_for(difficulty);
     if difficulty == Difficulty::TeeNoble {
@@ -188,25 +207,25 @@ pub fn select_move(state: &GameState, seat_index: usize, difficulty: Difficulty)
 
 /// Select a move under an explicit policy. Generic over RNG for seedable tests
 /// and calibration.
-pub fn act<R: Rng>(state: &GameState, seat_index: usize, policy: &Policy, rng: &mut R) -> Action {
+pub fn act<R: Rng>(state: &GameState, seat_index: usize, policy: &Policy, rng: &mut R) -> AiMove {
     let candidates = build_candidates(state, seat_index);
     // Forced move — no decision to make, skip all machinery.
     if candidates.len() == 1 {
-        return candidate_to_action(candidates[0]);
+        return candidate_to_aimove(candidates[0]);
     }
 
     match policy {
-        Policy::Random => candidate_to_action(*candidates.choose(rng).unwrap()),
+        Policy::Random => candidate_to_aimove(*candidates.choose(rng).unwrap()),
         Policy::AntiHeuristic { epsilon, params } => {
             if rng.gen::<f64>() < *epsilon {
-                candidate_to_action(*candidates.choose(rng).unwrap())
+                candidate_to_aimove(*candidates.choose(rng).unwrap())
             } else {
                 select_worst_move_with_params(state, seat_index, params)
             }
         }
         Policy::Heuristic { epsilon, params } => {
             if rng.gen::<f64>() < *epsilon {
-                candidate_to_action(*candidates.choose(rng).unwrap())
+                candidate_to_aimove(*candidates.choose(rng).unwrap())
             } else {
                 select_move_with_params(state, seat_index, params)
             }
@@ -276,7 +295,7 @@ pub fn determinize<R: Rng>(state: &GameState, our_seat: usize, rng: &mut R) -> G
 // ── Tree ─────────────────────────────────────────────────────────────────────
 
 struct Edge {
-    action: Action,
+    action: AiMove,
     child: Option<usize>,
     visits: u32,
     reward: f64,
@@ -295,7 +314,7 @@ fn ismcts_search<R: Rng>(
     exploration: f64,
     rollout: &DifficultyParams,
     rng: &mut R,
-) -> Action {
+) -> AiMove {
     let mut arena: Vec<Node> = vec![Node { edges: vec![] }];
     const ROOT: usize = 0;
 
@@ -375,7 +394,7 @@ fn ismcts_search<R: Rng>(
             if !untried.is_empty() {
                 let pick = untried[rng.gen_range(0..untried.len())];
                 let action = arena[node].edges[pick].action;
-                let _ = apply_action(&mut state, our_seat, action);
+                let _ = apply_ai_move(&mut state, our_seat, action);
                 let child = arena.len();
                 arena.push(Node { edges: vec![] });
                 arena[node].edges[pick].child = Some(child);
@@ -400,7 +419,7 @@ fn ismcts_search<R: Rng>(
                 }
             }
             let action = arena[node].edges[best_i].action;
-            let _ = apply_action(&mut state, our_seat, action);
+            let _ = apply_ai_move(&mut state, our_seat, action);
             path.push((node, best_i));
             node = arena[node].edges[best_i].child.unwrap();
         }
@@ -431,7 +450,7 @@ fn simulate_until_our_turn<R: Rng>(
         steps += 1;
         let idx = state.current_seat_index;
         let action = select_move_with_params(state, idx, params);
-        if apply_action(state, idx, action).is_err() {
+        if apply_ai_move(state, idx, action).is_err() {
             break;
         }
     }
@@ -448,7 +467,7 @@ fn rollout_to_end<R: Rng>(
         plies += 1;
         let idx = state.current_seat_index;
         let action = select_move_with_params(state, idx, params);
-        if apply_action(state, idx, action).is_err() {
+        if apply_ai_move(state, idx, action).is_err() {
             break;
         }
     }
@@ -463,10 +482,10 @@ fn terminal_reward(state: &GameState, our_seat: usize) -> f64 {
     }
 }
 
-fn legal_actions(state: &GameState, seat_index: usize) -> Vec<Action> {
+fn legal_actions(state: &GameState, seat_index: usize) -> Vec<AiMove> {
     build_candidates(state, seat_index)
         .into_iter()
-        .map(candidate_to_action)
+        .map(candidate_to_aimove)
         .collect()
 }
 
@@ -481,7 +500,7 @@ fn endgame_solve<R: Rng>(
     samples: usize,
     rollout_params: &DifficultyParams,
     rng: &mut R,
-) -> Option<Action> {
+) -> Option<AiMove> {
     let actions = legal_actions(state, our_seat);
     if actions.len() <= 1 {
         return None; // forced or trivial — let normal path handle it
@@ -491,7 +510,7 @@ fn endgame_solve<R: Rng>(
         let world = determinize(state, our_seat, rng);
         for (i, &action) in actions.iter().enumerate() {
             let mut sim = world.clone();
-            if apply_action(&mut sim, our_seat, action).is_ok()
+            if apply_ai_move(&mut sim, our_seat, action).is_ok()
                 && rollout_to_end(&mut sim, our_seat, rollout_params, rng) > 0.5
             {
                 wins[i] += 1;
@@ -505,11 +524,11 @@ fn endgame_solve<R: Rng>(
         .map(|(a, _)| a)
 }
 
-fn choose_root_action<R: Rng>(root: &Node, temperature: f64, rng: &mut R) -> Action {
+fn choose_root_action<R: Rng>(root: &Node, temperature: f64, rng: &mut R) -> AiMove {
     let visited: Vec<&Edge> = root.edges.iter().filter(|e| e.visits > 0).collect();
     if visited.is_empty() {
         // No search happened (degenerate); fall back to any known edge.
-        return root.edges.first().map(|e| e.action).unwrap_or(Action::Draw);
+        return root.edges.first().map(|e| e.action).unwrap_or(AiMove::Act(Action::Draw));
     }
 
     if temperature <= 0.0 {
@@ -544,11 +563,12 @@ fn choose_root_action<R: Rng>(root: &Node, temperature: f64, rng: &mut R) -> Act
     visited.last().unwrap().action
 }
 
-fn candidate_to_action(c: Candidate) -> Action {
+fn candidate_to_aimove(c: Candidate) -> AiMove {
     match c {
-        Candidate::Draw => Action::Draw,
-        Candidate::PlaySuit { shape, value } => Action::PlaySuit { shape, value },
-        Candidate::PlayWhot { called_shape } => Action::PlayWhot { called_shape },
+        Candidate::Draw => AiMove::Act(Action::Draw),
+        Candidate::PlaySuit { shape, value } => AiMove::Act(Action::PlaySuit { shape, value }),
+        Candidate::PlayWhot { called_shape } => AiMove::Act(Action::PlayWhot { called_shape }),
+        Candidate::PlayGroup { value, .. } => AiMove::Stack { value },
     }
 }
 

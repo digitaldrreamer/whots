@@ -16,8 +16,8 @@ use std::fs;
 use std::path::Path;
 
 use whots_server::game::{
-    ai::params::{select_move_with_params, DifficultyParams},
-    engine::{apply_action, create_game},
+    ai::{params::{select_move_with_params, DifficultyParams}, ismcts::apply_ai_move},
+    engine::create_game,
     types::{Difficulty, GameMode, GamePhase, Seat, SeatKind},
 };
 
@@ -250,7 +250,7 @@ fn simulate_one(
         };
 
         let action = select_move_with_params(&state, idx, params);
-        if apply_action(&mut state, idx, action).is_err() {
+        if apply_ai_move(&mut state, idx, action).is_err() {
             break;
         }
     }
