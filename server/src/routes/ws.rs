@@ -110,9 +110,12 @@ pub enum ServerEvent {
 /// Post-move "table talk" for an AI seat — a short line derived from public
 /// signals only (the card it played, the pending penalty, opponents' hand
 /// counts). Never references the AI's own hidden cards. Returns None for
-/// unremarkable moves so bubbles don't spam. Call with the *post-move* state.
-fn ai_table_talk(state: &GameState, seat: usize, mv: &AiMove) -> Option<String> {
+/// unremarkable moves so bubbles don't spam. Call with the *post-move* state;
+/// `forced` says the move was a compelled draw (penalty / General Market) —
+/// those get no bubble (the attacker already talked, and it's not "nothing for me").
+fn ai_table_talk(state: &GameState, seat: usize, mv: &AiMove, forced: bool) -> Option<String> {
     use rand::seq::SliceRandom;
+    use rand::Rng;
     let mut rng = rand::thread_rng();
     let n = state.seats.len();
     let name = |i: usize| state.seats.get(i).map(|s| s.name.as_str()).unwrap_or("");
@@ -138,7 +141,22 @@ fn ai_table_talk(state: &GameState, seat: usize, mv: &AiMove) -> Option<String> 
 
     let lines: Vec<String> = match mv {
         AiMove::Act(Action::Draw) => {
-            vec!["Nothing for me — market.".into(), "Hmm. Going to market.".into()]
+            // A forced (penalty / General Market) draw gets no bubble — the
+            // attacker already talked, and it isn't a "nothing for me" moment.
+            // Voluntary draws speak up only ~half the time so they don't spam.
+            if forced || rng.gen_bool(0.5) {
+                return None;
+            }
+            vec![
+                "Nothing to play — market.".into(),
+                "No move for me. Drawing one.".into(),
+                "Let me pick one.".into(),
+                "I'll take a card.".into(),
+                "Market run for me.".into(),
+                "Nothing fits — one card.".into(),
+                "Empty-handed here. Drawing.".into(),
+                "Hmm. Going to market.".into(),
+            ]
         }
         AiMove::Act(Action::PlayWhot { called_shape }) => vec![
             format!("Whot! Make it {called_shape:?}."),
@@ -235,6 +253,10 @@ pub async fn run_game_driver(
 
             SeatKind::Ai { difficulty } => {
                 tokio::time::sleep(Duration::from_millis(800)).await;
+                // Was any draw this turn compelled (penalty owed or General Market)?
+                // Captured pre-move so table-talk can stay quiet on forced draws.
+                let forced_draw = state.seats[seat_idx].owed_draws > 0
+                    || matches!(state.pending_effect, Some(PendingEffect::Pick { .. }));
                 // ISMCTS is CPU-bound (up to ~200ms for TeeNoble); run it off the
                 // async worker so it doesn't stall other games on this thread.
                 let snapshot = state.clone();
@@ -247,7 +269,8 @@ pub async fn run_game_driver(
                     tracing::error!(%game_id, seat = seat_idx, "AI invalid move: {e}");
                     let _ = apply_action(&mut state, seat_idx, Action::Draw);
                 } else {
-                    ai_talk = ai_table_talk(&state, seat_idx, &mv).map(|t| (seat_idx, t));
+                    ai_talk =
+                        ai_table_talk(&state, seat_idx, &mv, forced_draw).map(|t| (seat_idx, t));
                 }
             }
         }
