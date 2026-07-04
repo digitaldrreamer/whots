@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::{
-    auth::AuthUser,
+    auth::WsAuthUser,
     error::AppError,
     game::{
         ai::select_move,
@@ -242,7 +242,7 @@ async fn save_result(db: &sqlx::PgPool, state: &GameState) -> anyhow::Result<()>
 
 pub async fn game_socket(
     ws: WebSocketUpgrade,
-    AuthUser(claims): AuthUser,
+    WsAuthUser(claims): WsAuthUser,
     State(app): State<AppState>,
     Path(game_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
