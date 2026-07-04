@@ -15,6 +15,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use rayon::prelude::*;
+
 use whots_server::game::{
     ai::{params::{select_move_with_params, DifficultyParams}, ismcts::apply_ai_move},
     engine::create_game,
@@ -274,17 +276,13 @@ fn win_rate(
     params_b: &DifficultyParams,
     n: usize,
 ) -> f64 {
-    let mut wins = 0;
-    let mut total = 0;
-
-    for i in 0..n {
-        if let Some(a_won) = simulate_one(level_a, level_b, params_a, params_b, i % 2 == 0) {
-            if a_won {
-                wins += 1;
-            }
-            total += 1;
-        }
-    }
+    // The n games are independent; run them across all cores. simulate_one uses
+    // thread-local RNG, so each rayon worker is self-contained.
+    let (wins, total) = (0..n)
+        .into_par_iter()
+        .filter_map(|i| simulate_one(level_a, level_b, params_a, params_b, i % 2 == 0))
+        .map(|a_won| (a_won as u32, 1u32))
+        .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
 
     if total == 0 {
         0.5
