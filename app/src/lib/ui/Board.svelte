@@ -44,6 +44,9 @@
 
 	const status = $derived.by(() => {
 		if (!view) return '';
+		// A move is in flight to the server — show it so a slow round-trip doesn't
+		// feel frozen.
+		if (game.pending) return 'Sending…';
 		if (game.thinkingName) return `${game.thinkingName} is thinking…`;
 		// Not my turn: say whose it is / who we're waiting on (statusLine also
 		// calls out a player who still owes a General Market draw).
@@ -256,7 +259,9 @@
 			</div>
 		</section>
 
-		<div class="status" class:you={game.isMyTurn} aria-live="polite">{status}</div>
+		<div class="status" class:you={game.isMyTurn} class:sending={game.pending} aria-live="polite">
+			{#if game.pending}<span class="mini-spin"></span>{/if}{status}
+		</div>
 
 		<section class="you-area">
 			<div class="you-head">
@@ -553,6 +558,21 @@
 	.status.you {
 		color: var(--gold, #e8b84b);
 		font-weight: 600;
+	}
+	.status.sending {
+		color: rgba(255, 255, 255, 0.85);
+		font-weight: 600;
+	}
+	.mini-spin {
+		display: inline-block;
+		width: 12px;
+		height: 12px;
+		margin-right: 0.4rem;
+		vertical-align: -1px;
+		border-radius: 50%;
+		border: 2px solid rgba(255, 255, 255, 0.25);
+		border-top-color: var(--gold, #e8b84b);
+		animation: spin 0.6s linear infinite;
 	}
 
 	.you-area {

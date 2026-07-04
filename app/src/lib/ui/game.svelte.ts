@@ -83,6 +83,10 @@ export class GameController {
 	error = $state<string | null>(null);
 	log = $state<LogEntry[]>([]);
 	awaitingShape = $state(false);
+	// A move has been sent and we're awaiting the server's echoed state. Used to
+	// show "sending…" feedback and to lock input so a slow round-trip doesn't feel
+	// frozen (and taps can't queue up).
+	pending = $state(false);
 	// Cards tapped for a same-number stack (stack mode). One entry per card.
 	selected = $state<Card[]>([]);
 
@@ -109,6 +113,7 @@ export class GameController {
 	#annTimer: ReturnType<typeof setTimeout> | null = null;
 	#talkId = 0;
 	#talkTimer: ReturnType<typeof setTimeout> | null = null;
+	#pendingTimer: ReturnType<typeof setTimeout> | null = null;
 	#flightId = 0;
 	#winStreak = 0;
 
@@ -151,7 +156,23 @@ export class GameController {
 	 * play/draw input on this so clicks during a disconnect can't queue up and
 	 * replay on reconnect. */
 	get canAct(): boolean {
-		return this.isMyTurn && this.connection === 'open';
+		return this.isMyTurn && this.connection === 'open' && !this.pending;
+	}
+
+	#markPending(): void {
+		this.pending = true;
+		if (this.#pendingTimer) clearTimeout(this.#pendingTimer);
+		// Safety net: if no state/error comes back (dropped packet), unlock so the
+		// player can retry instead of being stuck.
+		this.#pendingTimer = setTimeout(() => (this.pending = false), 5000);
+	}
+
+	#clearPending(): void {
+		this.pending = false;
+		if (this.#pendingTimer) {
+			clearTimeout(this.#pendingTimer);
+			this.#pendingTimer = null;
+		}
 	}
 
 	get disconnected(): boolean {
@@ -409,6 +430,7 @@ export class GameController {
 				this.#onGameOver();
 				break;
 			case 'error':
+				this.#clearPending();
 				this.error = ev.message;
 				this.#pushLog('system', ev.message);
 				break;
@@ -421,7 +443,9 @@ export class GameController {
 
 	#applyView(next: GameStateView): void {
 		const prev = this.#prev;
-		// New state = a move happened; drop any stale card selection.
+		// New state arrived — the server processed our (or someone's) move, so the
+		// in-flight lock and any stale card selection are done.
+		this.#clearPending();
 		this.selected = [];
 		if (this.screen !== 'playing' && next.phase === 'playing') {
 			this.screen = 'playing';
@@ -554,6 +578,7 @@ export class GameController {
 		if (!this.canAct || card.kind !== 'suit') return;
 		if (!this.canPlayCard(card)) return;
 		this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: card.shape, value: card.value } });
+		this.#markPending();
 	}
 
 	// ── Stack selection (stack mode) ─────────────────────────────────────────────────
@@ -626,6 +651,7 @@ export class GameController {
 		} else {
 			this.#socket?.send({ type: 'play_stack', value, shapes });
 		}
+		this.#markPending();
 	}
 
 	clearSelection(): void {
@@ -651,6 +677,7 @@ export class GameController {
 				? { kind: 'call_shape', called_shape: shape }
 				: { kind: 'whot', called_shape: shape }
 		});
+		this.#markPending();
 	}
 
 	cancelWhot(): void {
@@ -660,6 +687,7 @@ export class GameController {
 	draw(): void {
 		if (!this.canAct) return;
 		this.#socket?.send({ type: 'draw' });
+		this.#markPending();
 	}
 
 	// ── Tee-Noble ────────────────────────────────────────────────────────────────────
@@ -682,6 +710,7 @@ export class GameController {
 		this.awaitingShape = false;
 		this.selected = [];
 		this.error = null;
+		this.#clearPending();
 	}
 
 	#say(text: string, tone: AnnounceTone, sub?: string): void {
