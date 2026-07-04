@@ -172,6 +172,11 @@
 	}
 
 	.slot {
+		position: relative;
+		/* Ascending cascade: each card sits above the one to its LEFT, so it only
+		   ever covers its left neighbour's right edge — every card's top-left
+		   number + shape stays visible. Never inverts, whatever the hand size. */
+		z-index: var(--i);
 		margin-left: var(--overlap);
 		/* The headline motion: cards fan apart / draw together in a staggered
 		   wave with a gentle overshoot, so it reads as one fluid gesture. */
@@ -185,8 +190,8 @@
 		margin-left: 0;
 	}
 	.slot:hover {
-		position: relative;
-		z-index: 6;
+		/* Lift the hovered card above the whole cascade. */
+		z-index: 100;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
