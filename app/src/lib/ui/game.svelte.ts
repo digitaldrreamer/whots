@@ -293,6 +293,7 @@ export class GameController {
 		}
 		this.#myUserId = session.user.id;
 		this.isTeeGame = isTee;
+		if (isTee) sound.preloadTeeLaugh();
 
 		const seats: SeatSpec[] = [{ kind: 'human', user_id: session.user.id }, ...aiSeats];
 
@@ -311,6 +312,7 @@ export class GameController {
 			this.#connect(gameId);
 			if (isTee) {
 				this.teeIntro = true;
+				sound.playTeeLaugh();
 				setTimeout(() => (this.teeIntro = false), 1900);
 			}
 		} catch (e) {
@@ -492,7 +494,10 @@ export class GameController {
 			this.winBurst += 1;
 			this.#pushLog('system', 'You emptied your hand — you win! 🎉');
 		} else {
-			sound.play('lose');
+			// When Tee-Noble beats you, his evil laugh is the send-off (not the
+			// generic lose jingle).
+			if (wasTee) sound.playTeeLaugh();
+			else sound.play('lose');
 			this.#pushLog('system', `${this.winnerName} wins.`);
 		}
 

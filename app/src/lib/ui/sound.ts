@@ -212,3 +212,54 @@ export function playDeal(n = 6): void {
 		}
 	}
 }
+
+// --- one-shot audio samples (real files under /static/sfx) ---
+// Everything else is synthesized; a couple of moments (Tee-Noble's laugh) want a
+// real recording. Loads lazily, caches the decoded buffer, and no-ops silently
+// until/unless the asset is present — so a missing file never breaks anything.
+const sampleCache = new Map<string, Promise<AudioBuffer | null>>();
+
+function loadSample(url: string): Promise<AudioBuffer | null> {
+	const ac = ensure();
+	if (!ac) return Promise.resolve(null); // audio not unlocked yet — retry later
+	let p = sampleCache.get(url);
+	if (p) return p;
+	p = (async () => {
+		try {
+			const res = await fetch(url);
+			if (!res.ok) return null;
+			return await ac.decodeAudioData(await res.arrayBuffer());
+		} catch {
+			return null;
+		}
+	})();
+	sampleCache.set(url, p);
+	return p;
+}
+
+function playSample(buf: AudioBuffer, gain = 0.95): void {
+	const ac = ensure();
+	if (!ac || !master) return;
+	const src = ac.createBufferSource();
+	src.buffer = buf;
+	const g = ac.createGain();
+	g.gain.value = gain;
+	src.connect(g).connect(master);
+	src.start();
+}
+
+const TEE_LAUGH_URL = '/sfx/tee-laugh.mp3';
+
+/** Warm the Tee-Noble laugh so it fires instantly when he shows up / wins. */
+export function preloadTeeLaugh(): void {
+	if (typeof window === 'undefined') return;
+	void loadSample(TEE_LAUGH_URL);
+}
+
+/** Tee-Noble's signature evil laugh. No-op until the asset ships (or when muted). */
+export function playTeeLaugh(): void {
+	if (muted) return;
+	void loadSample(TEE_LAUGH_URL).then((buf) => {
+		if (buf) playSample(buf);
+	});
+}
