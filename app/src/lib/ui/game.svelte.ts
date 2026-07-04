@@ -103,6 +103,7 @@ export class GameController {
 	#annId = 0;
 	#annTimer: ReturnType<typeof setTimeout> | null = null;
 	#flightId = 0;
+	#winStreak = 0;
 
 	// ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -217,15 +218,7 @@ export class GameController {
 
 	async start(config: GameConfig): Promise<void> {
 		this.config = { ...config };
-		this.error = null;
-		if (session.status !== 'authed' || !session.user) {
-			this.error = 'Sign in first.';
-			return;
-		}
-		this.#myUserId = session.user.id;
-		this.isTeeGame = false;
-
-		const seats: SeatSpec[] = [{ kind: 'human', user_id: session.user.id }];
+		const seats: SeatSpec[] = [];
 		for (let i = 0; i < config.opponents; i++) {
 			seats.push({
 				kind: 'ai',
@@ -233,15 +226,43 @@ export class GameController {
 				name: OPPONENT_NAMES[i] ?? `CPU ${i + 1}`
 			});
 		}
+		await this.#launch(config.mode, seats, false);
+	}
+
+	/** Start the one-shot Tee-Noble duel — a single flawless server AI seat. */
+	async startTee(): Promise<void> {
+		this.teeChallenge = false;
+		await this.#launch(this.config.mode, [{ kind: 'ai', difficulty: 'tee_noble', name: 'Tee-Noble' }], true);
+	}
+
+	async #launch(mode: GameMode, aiSeats: SeatSpec[], isTee: boolean): Promise<void> {
+		this.error = null;
+		if (session.status !== 'authed' || !session.user) {
+			this.error = 'Sign in first.';
+			return;
+		}
+		this.#myUserId = session.user.id;
+		this.isTeeGame = isTee;
+
+		const seats: SeatSpec[] = [{ kind: 'human', user_id: session.user.id }, ...aiSeats];
 
 		this.screen = 'connecting';
 		this.connection = 'connecting';
 		this.#resetFeedback();
-		this.#pushLog('system', `New game — ${config.mode} mode vs ${this.difficultyLabel}.`);
+		this.#pushLog(
+			'system',
+			isTee
+				? 'Tee-Noble takes a seat across the table. No mercy.'
+				: `New game — ${mode} mode vs ${this.difficultyLabel}.`
+		);
 
 		try {
-			const gameId = await createGame({ mode: config.mode, seats });
+			const gameId = await createGame({ mode, seats });
 			this.#connect(gameId);
+			if (isTee) {
+				this.teeIntro = true;
+				setTimeout(() => (this.teeIntro = false), 1900);
+			}
 		} catch (e) {
 			this.error = e instanceof Error ? e.message : 'Could not start game.';
 			this.screen = 'menu';
@@ -392,16 +413,31 @@ export class GameController {
 
 	#onGameOver(): void {
 		if (this.screen === 'result') return;
+		const won = this.winnerIsMe;
+		const wasTee = this.isTeeGame;
+		const wasDuel = (this.view?.seats.length ?? 0) === 2;
 		this.screen = 'result';
 		this.awaitingShape = false;
 		this.announce = null;
-		if (this.winnerIsMe) {
+
+		if (won) {
 			sound.play('win');
 			this.winBurst += 1;
 			this.#pushLog('system', 'You emptied your hand — you win! 🎉');
 		} else {
 			sound.play('lose');
 			this.#pushLog('system', `${this.winnerName} wins.`);
+		}
+
+		// Tee-Noble stalks one-on-one duels — weighted to appear more on a streak.
+		if (wasTee) {
+			this.#winStreak = 0;
+		} else if (won && wasDuel) {
+			this.#winStreak += 1;
+			const chance = Math.min(0.2 + this.#winStreak * 0.12, 0.65);
+			if (Math.random() < chance) this.teeChallenge = true;
+		} else if (!won) {
+			this.#winStreak = 0;
 		}
 	}
 
@@ -434,12 +470,13 @@ export class GameController {
 		this.#socket?.send({ type: 'draw' });
 	}
 
-	// ── Tee-Noble (P6 stubs) ─────────────────────────────────────────────────────────
+	// ── Tee-Noble ────────────────────────────────────────────────────────────────────
 	acceptTee(): void {
-		this.teeChallenge = false;
+		void this.startTee();
 	}
 	declineTee(): void {
 		this.teeChallenge = false;
+		this.#winStreak = 0;
 	}
 
 	// ── Feedback helpers ─────────────────────────────────────────────────────────────
