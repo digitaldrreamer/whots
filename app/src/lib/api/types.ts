@@ -85,7 +85,8 @@ export type ServerEvent =
 	| { type: 'game_over'; winner_index: number | null; winner_name: string | null }
 	| { type: 'error'; message: string }
 	| { type: 'rtc_signal'; from: string; kind: string; payload: string }
-	| { type: 'chat_message'; from: string; text: string };
+	| { type: 'chat_message'; from: string; text: string }
+	| { type: 'table_talk'; seat: number; text: string };
 
 // ── Auth ──────────────────────────────────────────────────────────────────────────
 export interface PublicUser {

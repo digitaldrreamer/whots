@@ -197,6 +197,7 @@
 					isTee={opp.isTee}
 					active={opp.isCurrent}
 					owed={opp.owed}
+					talk={game.tableTalk?.seat === opp.index ? game.tableTalk.text : null}
 					thinking={game.thinkingName === opp.name && opp.isCurrent}
 				/>
 			{/each}

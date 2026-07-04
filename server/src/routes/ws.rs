@@ -18,7 +18,7 @@ use crate::{
     game::{
         ai::{apply_ai_move, select_move, AiMove},
         engine::{apply_action, apply_stack, make_view, GameError},
-        types::{Action, GamePhase, GameState, GameStateView, SeatKind, Shape},
+        types::{Action, GamePhase, GameState, GameStateView, PendingEffect, SeatKind, Shape},
     },
     state::AppState,
     store::game_store,
@@ -98,6 +98,81 @@ pub enum ServerEvent {
         from: Uuid,
         text: String,
     },
+    /// Transient flavour: an AI seat "thinks out loud" after its move. Shown as a
+    /// disappearing bubble; not part of persistent game state.
+    TableTalk {
+        seat: usize,
+        text: String,
+    },
+}
+
+/// Post-move "table talk" for an AI seat — a short line derived from public
+/// signals only (the card it played, the pending penalty, opponents' hand
+/// counts). Never references the AI's own hidden cards. Returns None for
+/// unremarkable moves so bubbles don't spam. Call with the *post-move* state.
+fn ai_table_talk(state: &GameState, seat: usize, mv: &AiMove) -> Option<String> {
+    use rand::seq::SliceRandom;
+    let mut rng = rand::thread_rng();
+    let n = state.seats.len();
+    let name = |i: usize| state.seats.get(i).map(|s| s.name.as_str()).unwrap_or("");
+    let next = name((seat + 1) % n);
+
+    // The biggest checkout threat = the opponent with the fewest cards (public).
+    let threat = (0..n)
+        .filter(|&i| i != seat)
+        .min_by_key(|&i| state.seats[i].hand.len());
+    let threat_low = threat.is_some_and(|i| state.seats[i].hand.len() <= 2);
+    let threat_name = threat.map(name).unwrap_or("");
+    let my_cards = state.seats[seat].hand.len();
+
+    let value = match mv {
+        AiMove::Act(Action::PlaySuit { value, .. }) => Some(*value),
+        AiMove::Stack { value } => Some(*value),
+        _ => None,
+    };
+    let pick = match state.pending_effect {
+        Some(PendingEffect::Pick { count, card }) => Some(count * if card == 5 { 3 } else { 2 }),
+        _ => None,
+    };
+
+    let lines: Vec<String> = match mv {
+        AiMove::Act(Action::Draw) => {
+            vec!["Nothing for me — market.".into(), "Hmm. Going to market.".into()]
+        }
+        AiMove::Act(Action::PlayWhot { called_shape }) => vec![
+            format!("Whot! Make it {called_shape:?}."),
+            format!("Switching to {called_shape:?}."),
+        ],
+        _ => match value {
+            Some(2) | Some(5) => {
+                let d = pick.unwrap_or(if value == Some(5) { 3 } else { 2 });
+                if threat_low {
+                    vec![
+                        format!("Not so fast, {threat_name} — pick {d}!"),
+                        format!("{threat_name}'s almost out. Pick {d}!"),
+                    ]
+                } else {
+                    vec![format!("Pick {d}, {next}."), format!("Take {d}, {next}.")]
+                }
+            }
+            Some(8) if threat_low => {
+                vec![format!("Skip you, {threat_name}."), format!("Not yet, {threat_name}.")]
+            }
+            Some(8) => vec![format!("Suspended, {next}."), "Sit this one out.".into()],
+            Some(14) => vec!["General market — everybody draw! 🛒".into(), "Market run, all of you!".into()],
+            Some(1) => vec!["I'll go again.".into(), "Me again.".into()],
+            _ => {
+                if my_cards <= 2 {
+                    vec!["Almost there…".into(), "One more to go.".into()]
+                } else if threat_low {
+                    vec![format!("Watching you, {threat_name}."), "Careful now…".into()]
+                } else {
+                    return None; // plain shed — no bubble
+                }
+            }
+        },
+    };
+    lines.choose(&mut rng).cloned()
 }
 
 // ── Game driver ────────────────────────────────────────────────────────────────
@@ -121,6 +196,7 @@ pub async fn run_game_driver(
     loop {
         let seat_idx = state.current_seat_index;
         let seat_kind = state.seats[seat_idx].kind.clone();
+        let mut ai_talk: Option<(usize, String)> = None;
 
         match seat_kind {
             SeatKind::Human { user_id } => loop {
@@ -161,6 +237,8 @@ pub async fn run_game_driver(
                 if let Err(e) = apply_ai_move(&mut state, seat_idx, mv) {
                     tracing::error!(%game_id, seat = seat_idx, "AI invalid move: {e}");
                     let _ = apply_action(&mut state, seat_idx, Action::Draw);
+                } else {
+                    ai_talk = ai_table_talk(&state, seat_idx, &mv).map(|t| (seat_idx, t));
                 }
             }
         }
@@ -177,6 +255,15 @@ pub async fn run_game_driver(
             .map(|s| s.name.clone());
 
         broadcast_views(&state, &player_txs, &spectator_txs);
+
+        // Flavour bubble for the AI's move (skip if the move just ended the game).
+        if let Some((seat, text)) = ai_talk {
+            if !game_over {
+                let ev = Arc::new(ServerEvent::TableTalk { seat, text });
+                broadcast_raw(&player_txs, Arc::clone(&ev));
+                broadcast_raw(&spectator_txs, ev);
+            }
+        }
 
         if game_over {
             let ev = Arc::new(ServerEvent::GameOver {

@@ -94,6 +94,8 @@ export class GameController {
 	teeIntro = $state(false);
 	lastPlay = $state<{ id: number; seat: number; card: Card } | null>(null);
 	lastDraw = $state<{ id: number; seat: number; count: number } | null>(null);
+	// Transient AI "table talk" — a disappearing speech bubble over a seat.
+	tableTalk = $state<{ id: number; seat: number; text: string } | null>(null);
 
 	// Tee-Noble (wired in P6)
 	isTeeGame = $state(false);
@@ -105,6 +107,8 @@ export class GameController {
 	#logId = 0;
 	#annId = 0;
 	#annTimer: ReturnType<typeof setTimeout> | null = null;
+	#talkId = 0;
+	#talkTimer: ReturnType<typeof setTimeout> | null = null;
 	#flightId = 0;
 	#winStreak = 0;
 
@@ -380,6 +384,9 @@ export class GameController {
 				this.error = ev.message;
 				this.#pushLog('system', ev.message);
 				break;
+			case 'table_talk':
+				this.#showTableTalk(ev.seat, ev.text);
+				break;
 			// chat / rtc_signal handled elsewhere (deferred)
 		}
 	}
@@ -635,6 +642,7 @@ export class GameController {
 		this.announce = null;
 		this.lastPlay = null;
 		this.lastDraw = null;
+		this.tableTalk = null;
 		this.awaitingShape = false;
 		this.selected = [];
 		this.error = null;
@@ -652,6 +660,16 @@ export class GameController {
 
 	#shake(): void {
 		this.shakeId += 1;
+	}
+
+	#showTableTalk(seat: number, text: string): void {
+		this.#talkId += 1;
+		const id = this.#talkId;
+		this.tableTalk = { id, seat, text };
+		if (this.#talkTimer) clearTimeout(this.#talkTimer);
+		this.#talkTimer = setTimeout(() => {
+			if (this.#talkId === id) this.tableTalk = null;
+		}, 3800);
 	}
 
 	#pushLog(who: LogEntry['who'], text: string): void {

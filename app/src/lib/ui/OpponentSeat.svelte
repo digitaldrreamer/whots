@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Card from './Card.svelte';
+	import { fly } from 'svelte/transition';
 
 	let {
 		name,
@@ -8,7 +9,8 @@
 		thinking,
 		seatIndex,
 		isTee = false,
-		owed = 0
+		owed = 0,
+		talk = null
 	}: {
 		name: string;
 		handSize: number;
@@ -17,6 +19,7 @@
 		seatIndex: number;
 		isTee?: boolean;
 		owed?: number;
+		talk?: string | null;
 	} = $props();
 
 	const count = $derived(handSize);
@@ -24,6 +27,11 @@
 </script>
 
 <div class="seat" class:active class:tee={isTee} data-seat={seatIndex}>
+	{#if talk}
+		{#key talk}
+			<div class="bubble" transition:fly={{ y: 8, duration: 220 }}>{talk}</div>
+		{/key}
+	{/if}
 	<div class="fan" style:--n={fan}>
 		{#each Array.from({ length: fan }, (_, idx) => idx) as i (i)}
 			<div class="fslot" style:--i={i}>
@@ -109,6 +117,41 @@
 	.count {
 		font-size: 0.78rem;
 		color: rgba(255, 255, 255, 0.6);
+	}
+	.bubble {
+		position: absolute;
+		bottom: calc(100% + 4px);
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 6;
+		max-width: 180px;
+		width: max-content;
+		background: #fff;
+		color: #14201a;
+		font-size: 0.78rem;
+		font-weight: 600;
+		line-height: 1.25;
+		padding: 0.4rem 0.6rem;
+		border-radius: 12px;
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+		text-align: center;
+		pointer-events: none;
+	}
+	.bubble::after {
+		content: '';
+		position: absolute;
+		top: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		border: 6px solid transparent;
+		border-top-color: #fff;
+	}
+	.tee .bubble {
+		background: #2a0f16;
+		color: #ffd0d8;
+	}
+	.tee .bubble::after {
+		border-top-color: #2a0f16;
 	}
 	.owed {
 		font-size: 0.7rem;
