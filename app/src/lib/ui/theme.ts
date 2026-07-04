@@ -1,4 +1,4 @@
-import type { Shape } from '$lib/game/types.js';
+import type { Shape } from '$lib/api/types';
 
 // Signature colour per shape — chosen for strong contrast against the ivory
 // card face and to stay distinguishable for colour-blind players (varied

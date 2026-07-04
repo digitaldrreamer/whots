@@ -1,17 +1,24 @@
 <script lang="ts">
-	import type { Player } from '$lib/game/types.js';
 	import Card from './Card.svelte';
 
 	let {
-		player,
+		name,
+		handSize,
 		active,
 		thinking,
-		seatIndex
-	}: { player: Player; active: boolean; thinking: boolean; seatIndex: number } = $props();
+		seatIndex,
+		isTee = false
+	}: {
+		name: string;
+		handSize: number;
+		active: boolean;
+		thinking: boolean;
+		seatIndex: number;
+		isTee?: boolean;
+	} = $props();
 
-	const count = $derived(player.hand.length);
+	const count = $derived(handSize);
 	const fan = $derived(Math.min(count, 6));
-	const isTee = $derived(player.kind === 'tee-noble');
 </script>
 
 <div class="seat" class:active class:tee={isTee} data-seat={seatIndex}>
@@ -28,7 +35,7 @@
 	<div class="info">
 		<span class="name">
 			{#if isTee}👑
-			{/if}{player.name}
+			{/if}{name}
 		</span>
 		<span class="count">{count} card{count === 1 ? '' : 's'}</span>
 	</div>

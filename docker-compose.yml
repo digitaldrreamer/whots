@@ -89,8 +89,11 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      # adapter-node CSRF/origin check when running behind Traefik.
+      # adapter-node behind Traefik: trust the proxy's forwarded proto/host so
+      # url.protocol is https (correct cookie `secure` flag) and CSRF passes.
       ORIGIN: ${APP_URL}
+      PROTOCOL_HEADER: x-forwarded-proto
+      HOST_HEADER: x-forwarded-host
       # Base URL the Node server uses to reach the API in-cluster (server-side
       # load/hooks); the browser uses same-origin /api via Traefik.
       INTERNAL_API_URL: http://server:3001

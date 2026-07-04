@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { Card as CardT, Shape } from '$lib/game/types.js';
-	import { isSuitCard } from '$lib/game/guards.js';
+	import type { Card as CardT, Shape } from '$lib/api/types';
 	import Card from './Card.svelte';
 
 	let {
@@ -29,7 +28,7 @@
 			if (a.kind === 'whot' && b.kind === 'whot') return 0;
 			if (a.kind === 'whot') return 1;
 			if (b.kind === 'whot') return -1;
-			if (isSuitCard(a) && isSuitCard(b)) {
+			if (a.kind === 'suit' && b.kind === 'suit') {
 				return SHAPE_ORDER[a.shape] - SHAPE_ORDER[b.shape] || a.value - b.value;
 			}
 			return 0;
@@ -68,7 +67,7 @@
 
 	<div class="viewport" class:spread>
 		<div class="hand" class:spread style:--n={sorted.length}>
-			{#each sorted as card, i (i + '-' + card.kind + '-' + (isSuitCard(card) ? card.shape + card.value : 'w'))}
+			{#each sorted as card, i (i + '-' + card.kind + '-' + (card.kind === 'suit' ? card.shape + card.value : 'w'))}
 				{@const playable = canPlay(card)}
 				<div class="slot" style:--i={i}>
 					<Card

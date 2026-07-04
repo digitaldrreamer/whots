@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { game } from './game.svelte.js';
 
-	const won = $derived(game.winnerIsHuman);
-	const winner = $derived(game.state?.winner?.name ?? 'Opponent');
+	const won = $derived(game.winnerIsMe);
+	const winner = $derived(game.winnerName || 'Opponent');
 	const teeReward = $derived(game.isTeeGame && won);
 </script>
 

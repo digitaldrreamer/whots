@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { Card } from '$lib/game/types.js';
-	import { isSuitCard } from '$lib/game/guards.js';
+	import type { Card } from '$lib/api/types';
 	import { SHAPE_COLORS } from './theme.js';
 	import Shape from './Shape.svelte';
 
@@ -25,8 +24,8 @@
 	} = $props();
 
 	const isWhot = $derived(card !== undefined && card.kind === 'whot');
-	const shape = $derived(card !== undefined && isSuitCard(card) ? card.shape : null);
-	const value = $derived(card?.value ?? null);
+	const shape = $derived(card !== undefined && card.kind === 'suit' ? card.shape : null);
+	const value = $derived(card !== undefined && card.kind === 'suit' ? card.value : null);
 	const color = $derived(shape ? SHAPE_COLORS[shape] : '#111');
 
 	const cornerSize = $derived(size === 'lg' ? 22 : size === 'sm' ? 12 : 16);

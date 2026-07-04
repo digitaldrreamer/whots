@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SHAPES } from '$lib/game/types.js';
+	import { SHAPES } from '$lib/api/types';
 	import { SHAPE_COLORS, SHAPE_LABELS } from './theme.js';
 	import Shape from './Shape.svelte';
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Shape } from '$lib/game/types.js';
+	import type { Shape } from '$lib/api/types';
 
 	let {
 		shape,

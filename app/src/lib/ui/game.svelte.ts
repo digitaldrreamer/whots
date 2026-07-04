@@ -1,39 +1,25 @@
-import {
-	createGame,
-	createPlayerId,
-	drawCard,
-	playCard,
-	type PlayAction
-} from '$lib/game/state.js';
-import { getValidMoves } from '$lib/game/moves.js';
-import { getSuitCardEffect } from '$lib/game/effects.js';
-import { isWhotCard } from '$lib/game/guards.js';
-import { selectMove, selectMoveTeeNoble } from '$lib/game/computer/index.js';
-import {
-	acceptChallenge,
-	afterGame,
-	createSession,
-	declineChallenge,
-	isChallengePending,
-	resolveChallenge,
-	type TeeNobleSession
-} from '$lib/game/tee-noble.js';
+import { GameSocket } from '$lib/api/socket';
+import { createGame } from '$lib/api/games';
+import { canPlay } from '$lib/api/rules';
+import { session } from '$lib/stores/session.svelte';
 import type {
 	Card,
 	Difficulty,
 	GameMode,
-	GameState,
-	Player,
+	GameStateView,
+	SeatSpec,
+	SeatView,
+	ServerEvent,
 	Shape,
-	SuitCard
-} from '$lib/game/types.js';
+	TopCard
+} from '$lib/api/types';
 import { SHAPE_LABELS } from './theme.js';
 import * as sound from './sound.js';
 
-export type Screen = 'menu' | 'playing' | 'result';
-
+export type Screen = 'menu' | 'connecting' | 'playing' | 'result';
 export type AnnounceTone = 'good' | 'bad' | 'wild' | 'skip' | 'market' | 'boss';
 export type AnnounceData = { id: number; text: string; sub?: string; tone: AnnounceTone };
+export type LogEntry = { id: number; who: 'you' | 'them' | 'system'; text: string };
 
 export type GameConfig = {
 	mode: GameMode;
@@ -41,142 +27,470 @@ export type GameConfig = {
 	opponents: number;
 };
 
-export type LogEntry = {
-	id: number;
-	who: 'you' | 'them' | 'system';
-	text: string;
+export type OpponentView = {
+	index: number;
+	name: string;
+	handSize: number;
+	isAi: boolean;
+	isTee: boolean;
+	isCurrent: boolean;
 };
 
-const HUMAN = 0;
-const AI_THINK_MS = 750;
-const AI_STEP_MS = 550;
+const OPPONENT_NAMES = ['Ada', 'Emeka', 'Ngozi', 'Bisi', 'Tunde'];
 
-const OPPONENT_NAMES = ['Ada', 'Emeka', 'Ngozi'];
+export const DIFFICULTY_META: { id: Difficulty; label: string; blurb: string }[] = [
+	{ id: 'pikin', label: 'Pikin', blurb: 'Pure beginner. Plays at random.' },
+	{ id: 'smallz', label: 'Smallz', blurb: 'Learns to thin its hand.' },
+	{ id: 'isabi_small', label: 'iSabiSmall', blurb: 'Starts using action cards.' },
+	{ id: 'chief', label: 'Chief', blurb: 'Hunts the player with fewest cards.' },
+	{ id: 'egbon', label: 'Ẹgbọn Àdúgbò', blurb: 'Reads suits and calls Whot smartly.' },
+	{ id: 'jagaban', label: 'Jagaban', blurb: 'Anticipates and sets up plays. Ruthless.' }
+];
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 	pikin: 'Pikin',
 	smallz: 'Smallz',
-	isabiSmall: 'iSabiSmall',
+	isabi_small: 'iSabiSmall',
 	chief: 'Chief',
 	egbon: 'Ẹgbọn Àdúgbò',
-	jagaban: 'Jagaban'
+	jagaban: 'Jagaban',
+	tee_noble: 'Tee-Noble'
 };
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+function topToCard(top: TopCard): Card {
+	return top.kind === 'whot' ? { kind: 'whot' } : { kind: 'suit', shape: top.shape, value: top.value };
 }
 
 function cardName(card: Card): string {
-	if (card.kind === 'whot') return 'Whot';
-	return `${card.value} of ${SHAPE_LABELS[card.shape]}s`;
+	return card.kind === 'whot' ? 'Whot' : `${card.value} of ${SHAPE_LABELS[card.shape]}s`;
 }
 
-function effectNote(card: SuitCard): string | null {
-	const effect = getSuitCardEffect(card);
-	switch (effect?.kind) {
-		case 'hold_on':
-			return 'Hold on!';
-		case 'pick_two':
-			return 'Pick two';
-		case 'pick_three':
-			return 'Pick three';
-		case 'suspension':
-			return 'Suspension';
-		case 'general_market':
-			return 'General market — everyone draws';
-		default:
-			return null;
-	}
-}
+// value -> callout mapping for played action cards
+const ACTION_LABEL: Record<number, string> = {
+	1: 'HOLD ON',
+	2: 'PICK TWO',
+	5: 'PICK THREE',
+	8: 'SUSPENDED',
+	14: 'GENERAL MARKET'
+};
 
 export class GameController {
 	screen = $state<Screen>('menu');
 	config = $state<GameConfig>({ mode: 'stack', difficulty: 'chief', opponents: 1 });
-	state = $state<GameState | null>(null);
+	view = $state<GameStateView | null>(null);
+	connection = $state<'idle' | 'connecting' | 'open' | 'closed' | 'error'>('idle');
+	error = $state<string | null>(null);
 	log = $state<LogEntry[]>([]);
-	busy = $state(false);
-	thinkingName = $state<string | null>(null);
 	awaitingShape = $state(false);
 
-	// Tee-Noble
-	tee = $state<TeeNobleSession>(createSession());
-	teeChallenge = $state(false);
-	isTeeGame = $state(false);
-
-	// Gamification feedback
+	// Animation / feedback signals (consumed by Board, Announce, FlightLayer, …)
 	announce = $state<AnnounceData | null>(null);
 	shakeId = $state(0);
-	winBurst = $state(0);
 	dealSeq = $state(0);
+	winBurst = $state(0);
 	teeIntro = $state(false);
 	lastPlay = $state<{ id: number; seat: number; card: Card } | null>(null);
 	lastDraw = $state<{ id: number; seat: number } | null>(null);
 
+	// Tee-Noble (wired in P6)
+	isTeeGame = $state(false);
+	teeChallenge = $state(false);
+
+	#socket: GameSocket | null = null;
+	#myUserId: string | null = null;
+	#prev: GameStateView | null = null;
 	#logId = 0;
 	#annId = 0;
 	#annTimer: ReturnType<typeof setTimeout> | null = null;
-	#handSizes: number[] = [];
 	#flightId = 0;
+	#winStreak = 0;
 
-	// --- Derived helpers ---
+	// ── Derived ──────────────────────────────────────────────────────────────────
 
-	get human(): Player | null {
-		return this.state?.players[HUMAN] ?? null;
+	get mySeatIndex(): number {
+		const v = this.view;
+		if (!v || !this.#myUserId) return -1;
+		return v.seats.findIndex((s) => s.kind.kind === 'human' && s.kind.user_id === this.#myUserId);
 	}
 
-	get isHumanTurn(): boolean {
-		const s = this.state;
+	get mySeat(): SeatView | null {
+		const i = this.mySeatIndex;
+		return i >= 0 ? (this.view?.seats[i] ?? null) : null;
+	}
+
+	get myHand(): Card[] {
+		return this.mySeat?.hand ?? [];
+	}
+
+	get currentSeatIndex(): number {
+		return this.view?.current_seat_index ?? -1;
+	}
+
+	get isMyTurn(): boolean {
+		const v = this.view;
 		return (
-			s !== null &&
-			s.phase === 'playing' &&
-			s.currentPlayerIndex === HUMAN &&
-			!this.busy &&
+			v !== null &&
+			v.phase === 'playing' &&
+			this.currentSeatIndex === this.mySeatIndex &&
 			!this.awaitingShape
 		);
 	}
 
-	get validHumanCards(): Card[] {
-		const s = this.state;
-		const h = this.human;
-		if (!s || !h) return [];
-		return getValidMoves(h.hand, s.topCard, s.pendingEffect, s.mode);
+	get busy(): boolean {
+		return !this.isMyTurn;
 	}
 
-	get canPlayCard(): (card: Card) => boolean {
-		const valid = this.validHumanCards;
-		return (card: Card) =>
-			valid.some((v) =>
-				v.kind === 'whot'
-					? card.kind === 'whot'
-					: card.kind === 'suit' && v.shape === card.shape && v.value === card.value
-			);
+	get topCard(): TopCard | null {
+		return this.view?.discard_top ?? null;
 	}
 
-	get mustDraw(): boolean {
-		const s = this.state;
-		if (!s) return false;
-		if (s.pendingEffect?.kind === 'pick') return this.validHumanCards.length === 0;
-		return this.validHumanCards.length === 0;
+	get mode(): GameMode {
+		return this.view?.mode ?? this.config.mode;
 	}
 
 	get pendingPick(): number {
-		return this.state?.pendingEffect?.kind === 'pick' ? this.state.pendingEffect.total : 0;
+		const p = this.view?.pending_effect;
+		return p && p.kind === 'pick' ? p.total : 0;
 	}
 
-	get winnerIsHuman(): boolean {
-		return this.state?.winner?.id === this.human?.id;
+	/** Opponent seats in turn order starting after me (for seating them around the table). */
+	get opponents(): OpponentView[] {
+		const v = this.view;
+		const me = this.mySeatIndex;
+		if (!v || me < 0) return [];
+		const out: OpponentView[] = [];
+		for (let step = 1; step < v.seats.length; step++) {
+			const idx = (me + step) % v.seats.length;
+			const seat = v.seats[idx];
+			out.push({
+				index: idx,
+				name: seat.name,
+				handSize: seat.hand_size,
+				isAi: seat.kind.kind === 'ai',
+				isTee: seat.kind.kind === 'ai' && seat.kind.difficulty === 'tee_noble',
+				isCurrent: idx === v.current_seat_index && v.phase === 'playing'
+			});
+		}
+		return out;
 	}
 
-	// --- Setup ---
-
-	#pushLog(who: LogEntry['who'], text: string) {
-		this.#logId += 1;
-		this.log = [...this.log, { id: this.#logId, who, text }].slice(-40);
+	get thinkingName(): string | null {
+		const v = this.view;
+		if (!v || v.phase !== 'playing') return null;
+		const cur = v.seats[v.current_seat_index];
+		if (cur && cur.kind.kind === 'ai' && v.current_seat_index !== this.mySeatIndex) return cur.name;
+		return null;
 	}
 
-	// --- Feedback (banners, shake, sound) ---
+	canPlayCard(card: Card): boolean {
+		const v = this.view;
+		if (!v || !this.isMyTurn) return false;
+		return canPlay(card, v.discard_top, v.pending_effect, v.mode);
+	}
 
-	#say(text: string, tone: AnnounceTone, sub?: string) {
+	get playableCards(): Card[] {
+		return this.myHand.filter((c) => this.canPlayCard(c));
+	}
+
+	get mustDraw(): boolean {
+		return this.isMyTurn && this.playableCards.length === 0;
+	}
+
+	get winnerIndex(): number | null {
+		return this.view?.winner_index ?? null;
+	}
+
+	get winnerIsMe(): boolean {
+		return this.winnerIndex !== null && this.winnerIndex === this.mySeatIndex;
+	}
+
+	get winnerName(): string {
+		const v = this.view;
+		if (!v || v.winner_index === null) return '';
+		return v.seats[v.winner_index]?.name ?? 'Winner';
+	}
+
+	get difficultyLabel(): string {
+		return DIFFICULTY_LABELS[this.config.difficulty];
+	}
+
+	// ── Lifecycle ──────────────────────────────────────────────────────────────────
+
+	async start(config: GameConfig): Promise<void> {
+		this.config = { ...config };
+		const seats: SeatSpec[] = [];
+		for (let i = 0; i < config.opponents; i++) {
+			seats.push({
+				kind: 'ai',
+				difficulty: config.difficulty,
+				name: OPPONENT_NAMES[i] ?? `CPU ${i + 1}`
+			});
+		}
+		await this.#launch(config.mode, seats, false);
+	}
+
+	/** Start the one-shot Tee-Noble duel — a single flawless server AI seat. */
+	async startTee(): Promise<void> {
+		this.teeChallenge = false;
+		await this.#launch(this.config.mode, [{ kind: 'ai', difficulty: 'tee_noble', name: 'Tee-Noble' }], true);
+	}
+
+	async #launch(mode: GameMode, aiSeats: SeatSpec[], isTee: boolean): Promise<void> {
+		this.error = null;
+		if (session.status !== 'authed' || !session.user) {
+			this.error = 'Sign in first.';
+			return;
+		}
+		this.#myUserId = session.user.id;
+		this.isTeeGame = isTee;
+
+		const seats: SeatSpec[] = [{ kind: 'human', user_id: session.user.id }, ...aiSeats];
+
+		this.screen = 'connecting';
+		this.connection = 'connecting';
+		this.#resetFeedback();
+		this.#pushLog(
+			'system',
+			isTee
+				? 'Tee-Noble takes a seat across the table. No mercy.'
+				: `New game — ${mode} mode vs ${this.difficultyLabel}.`
+		);
+
+		try {
+			const gameId = await createGame({ mode, seats });
+			this.#connect(gameId);
+			if (isTee) {
+				this.teeIntro = true;
+				setTimeout(() => (this.teeIntro = false), 1900);
+			}
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not start game.';
+			this.screen = 'menu';
+			this.connection = 'idle';
+		}
+	}
+
+	#connect(gameId: string): void {
+		const token = session.accessToken;
+		if (!token) {
+			this.error = 'Not authenticated.';
+			this.screen = 'menu';
+			return;
+		}
+		this.#socket?.close();
+		this.#prev = null;
+		this.#socket = new GameSocket({
+			gameId,
+			token,
+			onEvent: (ev) => this.#onEvent(ev),
+			onStatus: (s) => (this.connection = s === 'open' ? 'open' : s === 'error' ? 'error' : s === 'closed' ? 'closed' : 'connecting')
+		});
+		this.#socket.connect();
+	}
+
+	toMenu(): void {
+		this.#socket?.close();
+		this.#socket = null;
+		this.view = null;
+		this.#prev = null;
+		this.screen = 'menu';
+		this.connection = 'idle';
+		this.isTeeGame = false;
+		this.teeChallenge = false;
+	}
+
+	// ── Server events ───────────────────────────────────────────────────────────────
+
+	#onEvent(ev: ServerEvent): void {
+		switch (ev.type) {
+			case 'game_state':
+				this.#applyView(ev.state);
+				break;
+			case 'game_over':
+				this.#onGameOver();
+				break;
+			case 'error':
+				this.error = ev.message;
+				this.#pushLog('system', ev.message);
+				break;
+			// chat / rtc_signal handled elsewhere (deferred)
+		}
+	}
+
+	#applyView(next: GameStateView): void {
+		const prev = this.#prev;
+		if (this.screen !== 'playing' && next.phase === 'playing') {
+			this.screen = 'playing';
+			this.dealSeq += 1;
+			sound.playDeal(Math.min(next.seats.length * 2, 8));
+		}
+		this.view = next;
+
+		if (prev) this.#deriveFeedback(prev, next);
+		this.#checkLastCard(prev, next);
+		this.#prev = next;
+
+		if (next.phase === 'finished') this.#onGameOver();
+	}
+
+	// Infer callouts/sounds/flight from the state transition.
+	#deriveFeedback(prev: GameStateView, next: GameStateView): void {
+		const mover = prev.current_seat_index;
+		const me = this.mySeatIndex;
+		const byMe = mover === me;
+		const topChanged = JSON.stringify(prev.discard_top) !== JSON.stringify(next.discard_top);
+
+		if (topChanged) {
+			const card = topToCard(next.discard_top);
+			this.#flightId += 1;
+			this.lastPlay = { id: this.#flightId, seat: mover, card };
+
+			if (next.discard_top.kind === 'whot') {
+				const shape = next.discard_top.called_shape;
+				this.#say('WHOT!', 'wild', `called ${SHAPE_LABELS[shape]}`);
+				sound.play('whot');
+				this.#pushLog(byMe ? 'you' : 'them', `${byMe ? 'You' : prev.seats[mover]?.name} played Whot — called ${SHAPE_LABELS[shape]}.`);
+				return;
+			}
+
+			const value = next.discard_top.value;
+			const stacking =
+				next.mode === 'stack' &&
+				next.pending_effect?.kind === 'pick' &&
+				(value === 2 || value === 5);
+			const comingToMe = next.current_seat_index === me && !byMe;
+			const label = ACTION_LABEL[value];
+
+			if (stacking) {
+				this.#say(`STACK +${this.pendingPick}`, comingToMe ? 'bad' : 'good');
+				sound.playStack(this.pendingPick);
+			} else if (label) {
+				const tone: AnnounceTone =
+					value === 8 ? 'skip' : value === 14 ? 'market' : comingToMe ? 'bad' : 'good';
+				this.#say(label, tone);
+				sound.play(value === 1 ? 'holdon' : value === 2 ? 'pick2' : value === 5 ? 'pick3' : value === 8 ? 'skip' : 'market');
+				if (comingToMe) this.#shake();
+			} else {
+				sound.play('play');
+			}
+			this.#pushLog(
+				byMe ? 'you' : 'them',
+				`${byMe ? 'You' : prev.seats[mover]?.name} played ${cardName(card)}.`
+			);
+		} else {
+			// No card played -> a draw. The mover's hand grew.
+			const grew = next.seats[mover] && prev.seats[mover] && next.seats[mover].hand_size > prev.seats[mover].hand_size;
+			if (grew) {
+				const drew = next.seats[mover].hand_size - prev.seats[mover].hand_size;
+				this.#flightId += 1;
+				this.lastDraw = { id: this.#flightId, seat: mover };
+				const wasPick = prev.pending_effect?.kind === 'pick';
+				if (byMe && wasPick) {
+					sound.play('youhit');
+					this.#shake();
+				} else {
+					sound.play('draw');
+				}
+				this.#pushLog(
+					byMe ? 'you' : 'them',
+					`${byMe ? 'You' : prev.seats[mover]?.name} went to market${wasPick ? ` (${drew})` : ''}.`
+				);
+			}
+		}
+	}
+
+	#checkLastCard(prev: GameStateView | null, next: GameStateView): void {
+		if (next.phase !== 'playing') return;
+		next.seats.forEach((seat, i) => {
+			const before = prev?.seats[i]?.hand_size ?? 5;
+			if (seat.hand_size === 1 && before !== 1) {
+				const isYou = i === this.mySeatIndex;
+				this.#say('LAST CARD', isYou ? 'good' : 'bad', isYou ? 'one to go!' : `${seat.name} is on 1`);
+				sound.play('lastcard');
+			}
+		});
+	}
+
+	#onGameOver(): void {
+		if (this.screen === 'result') return;
+		const won = this.winnerIsMe;
+		const wasTee = this.isTeeGame;
+		const wasDuel = (this.view?.seats.length ?? 0) === 2;
+		this.screen = 'result';
+		this.awaitingShape = false;
+		this.announce = null;
+
+		if (won) {
+			sound.play('win');
+			this.winBurst += 1;
+			this.#pushLog('system', 'You emptied your hand — you win! 🎉');
+		} else {
+			sound.play('lose');
+			this.#pushLog('system', `${this.winnerName} wins.`);
+		}
+
+		// Tee-Noble stalks one-on-one duels — weighted to appear more on a streak.
+		if (wasTee) {
+			this.#winStreak = 0;
+		} else if (won && wasDuel) {
+			this.#winStreak += 1;
+			const chance = Math.min(0.2 + this.#winStreak * 0.12, 0.65);
+			if (Math.random() < chance) this.teeChallenge = true;
+		} else if (!won) {
+			this.#winStreak = 0;
+		}
+	}
+
+	// ── Human actions ───────────────────────────────────────────────────────────────
+
+	playSuit(card: Card): void {
+		if (!this.isMyTurn || card.kind !== 'suit') return;
+		if (!this.canPlayCard(card)) return;
+		this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: card.shape, value: card.value } });
+	}
+
+	beginWhot(): void {
+		if (!this.isMyTurn) return;
+		if (!this.myHand.some((c) => c.kind === 'whot')) return;
+		if (!this.canPlayCard({ kind: 'whot' })) return;
+		this.awaitingShape = true;
+	}
+
+	chooseShape(shape: Shape): void {
+		this.awaitingShape = false;
+		this.#socket?.send({ type: 'play_card', action: { kind: 'whot', called_shape: shape } });
+	}
+
+	cancelWhot(): void {
+		this.awaitingShape = false;
+	}
+
+	draw(): void {
+		if (!this.isMyTurn) return;
+		this.#socket?.send({ type: 'draw' });
+	}
+
+	// ── Tee-Noble ────────────────────────────────────────────────────────────────────
+	acceptTee(): void {
+		void this.startTee();
+	}
+	declineTee(): void {
+		this.teeChallenge = false;
+		this.#winStreak = 0;
+	}
+
+	// ── Feedback helpers ─────────────────────────────────────────────────────────────
+
+	#resetFeedback(): void {
+		this.log = [];
+		this.announce = null;
+		this.lastPlay = null;
+		this.lastDraw = null;
+		this.awaitingShape = false;
+		this.error = null;
+	}
+
+	#say(text: string, tone: AnnounceTone, sub?: string): void {
 		this.#annId += 1;
 		const id = this.#annId;
 		this.announce = { id, text, tone, sub };
@@ -186,368 +500,14 @@ export class GameController {
 		}, 1500);
 	}
 
-	#shake() {
+	#shake(): void {
 		this.shakeId += 1;
 	}
 
-	// Called after a card is played — fires the matching callout + sound.
-	#playFeedback(byIndex: number, action: PlayAction) {
-		const s = this.state;
-		if (!s) return;
-		const players = s.players;
-		const byHuman = byIndex === HUMAN;
-		const nextIdx = (byIndex + 1) % players.length;
-		const nextIsHuman = nextIdx === HUMAN;
-		const nextName = players[nextIdx]?.name ?? 'next';
-
-		// Signal the flight layer which card left which seat for the pile.
-		const playedCard: Card = action.kind === 'whot' ? { kind: 'whot', value: 20 } : action.card;
-		this.#flightId += 1;
-		this.lastPlay = { id: this.#flightId, seat: byIndex, card: playedCard };
-
-		// Stacking (stack mode): rising counter blip as the penalty climbs.
-		const stacking =
-			s.mode === 'stack' &&
-			s.pendingEffect?.kind === 'pick' &&
-			action.kind === 'suit' &&
-			(action.card.value === 2 || action.card.value === 5);
-
-		if (action.kind === 'whot') {
-			this.#say('WHOT!', 'wild', `called ${SHAPE_LABELS[action.calledShape]}`);
-			sound.play('whot');
-			return;
-		}
-
-		const effect = getSuitCardEffect(action.card);
-		switch (effect?.kind) {
-			case 'hold_on':
-				this.#say('HOLD ON', 'good', byHuman ? 'go again' : `${players[byIndex]?.name} goes again`);
-				sound.play('holdon');
-				break;
-			case 'pick_two':
-				this.#say(
-					stacking ? `STACK +${this.pendingPick}` : 'PICK TWO',
-					nextIsHuman && !byHuman ? 'bad' : 'good',
-					`→ ${nextName}`
-				);
-				if (stacking) sound.playStack(this.pendingPick);
-				else if (nextIsHuman && !byHuman) {
-					sound.play('youhit');
-					this.#shake();
-				} else sound.play('pick2');
-				break;
-			case 'pick_three':
-				this.#say(
-					stacking ? `STACK +${this.pendingPick}` : 'PICK THREE',
-					nextIsHuman && !byHuman ? 'bad' : 'good',
-					`→ ${nextName}`
-				);
-				if (stacking) sound.playStack(this.pendingPick);
-				else if (nextIsHuman && !byHuman) {
-					sound.play('youhit');
-					this.#shake();
-				} else sound.play('pick3');
-				break;
-			case 'suspension':
-				this.#say('SUSPENDED', 'skip', `${nextName} skips`);
-				sound.play('skip');
-				if (nextIsHuman && !byHuman) this.#shake();
-				break;
-			case 'general_market':
-				this.#say('GENERAL MARKET', 'market', 'everyone draws');
-				sound.play('market');
-				if (!byHuman) this.#shake();
-				break;
-			default:
-				sound.play('play');
-		}
-	}
-
-	// Announce when any player drops to their last card (once per transition).
-	#checkLastCard() {
-		const s = this.state;
-		if (!s || s.phase !== 'playing') return;
-		s.players.forEach((p, i) => {
-			const prev = this.#handSizes[i] ?? 5;
-			if (p.hand.length === 1 && prev !== 1) {
-				const isYou = i === HUMAN;
-				this.#say('LAST CARD', isYou ? 'good' : 'bad', isYou ? 'one to go!' : `${p.name} is on 1`);
-				sound.play('lastcard');
-			}
-		});
-		this.#handSizes = s.players.map((p) => p.hand.length);
-	}
-
-	#buildPlayers(kind: 'normal' | 'tee'): Player[] {
-		const human: Player = {
-			id: createPlayerId('human'),
-			kind: 'human',
-			name: 'You',
-			hand: []
-		};
-		if (kind === 'tee') {
-			return [
-				human,
-				{ id: createPlayerId('tee-noble'), kind: 'tee-noble', name: 'Tee-Noble', hand: [] }
-			];
-		}
-		const opponents: Player[] = Array.from({ length: this.config.opponents }, (_, i) => ({
-			id: createPlayerId(`cpu-${i}`),
-			kind: 'computer' as const,
-			name: OPPONENT_NAMES[i] ?? `CPU ${i + 1}`,
-			difficulty: this.config.difficulty,
-			hand: []
-		}));
-		return [human, ...opponents];
-	}
-
-	start(config: GameConfig) {
-		this.config = { ...config };
-		this.#startGame('normal');
-	}
-
-	#startGame(kind: 'normal' | 'tee') {
-		this.isTeeGame = kind === 'tee';
-		this.log = [];
-		this.busy = false;
-		this.thinkingName = null;
-		this.awaitingShape = false;
-		this.teeChallenge = false;
-		const players = this.#buildPlayers(kind);
-		this.state = createGame(players, this.config.mode);
-		this.#handSizes = this.state.players.map((p) => p.hand.length);
-		this.announce = null;
-		this.lastPlay = null;
-		this.lastDraw = null;
-		this.dealSeq += 1;
-		this.screen = 'playing';
-		sound.playDeal(Math.min(this.state.players.length * 2, 8));
-		if (kind === 'tee') {
-			this.#pushLog('system', 'Tee-Noble takes a seat across the table. No mercy.');
-			this.teeIntro = true;
-			setTimeout(() => (this.teeIntro = false), 1900);
-		} else {
-			const diff = DIFFICULTY_LABELS[this.config.difficulty];
-			this.#pushLog('system', `New game — ${this.config.mode} mode vs ${diff}. You start.`);
-		}
-	}
-
-	toMenu() {
-		this.screen = 'menu';
-		this.state = null;
-		this.teeChallenge = false;
-		this.isTeeGame = false;
-	}
-
-	// --- Human actions ---
-
-	playSuit(card: SuitCard) {
-		if (!this.isHumanTurn) return;
-		this.#applyHuman({ kind: 'suit', card }, card);
-	}
-
-	beginWhot() {
-		if (!this.isHumanTurn) return;
-		const h = this.human;
-		if (!h || !h.hand.some(isWhotCard)) return;
-		this.awaitingShape = true;
-	}
-
-	chooseShape(shape: Shape) {
-		this.awaitingShape = false;
-		this.#applyHuman({ kind: 'whot', calledShape: shape }, { kind: 'whot', value: 20 });
-	}
-
-	cancelWhot() {
-		this.awaitingShape = false;
-	}
-
-	draw() {
-		if (!this.isHumanTurn) return;
-		const s = this.state;
-		if (!s) return;
-		const before = this.human?.hand.length ?? 0;
-		const pick = this.pendingPick;
-		try {
-			this.state = drawCard(s, HUMAN);
-		} catch {
-			return;
-		}
-		const after = this.state.players[HUMAN]?.hand.length ?? 0;
-		const drew = after - before;
-		this.#flightId += 1;
-		this.lastDraw = { id: this.#flightId, seat: HUMAN };
-		if (pick > 0) {
-			this.#pushLog('you', `You went to market and picked ${drew} card${drew === 1 ? '' : 's'}.`);
-			sound.play('youhit');
-			this.#shake();
-		} else {
-			this.#pushLog('you', `You went to market (drew ${drew}).`);
-			sound.play('draw');
-		}
-		this.#afterMove();
-	}
-
-	#applyHuman(action: PlayAction, played: Card) {
-		const s = this.state;
-		if (!s) return;
-		try {
-			this.state = playCard(s, HUMAN, action);
-		} catch {
-			this.#pushLog('system', 'That move is not allowed.');
-			return;
-		}
-		let text = `You played ${cardName(played)}`;
-		if (action.kind === 'whot') text += ` — called ${SHAPE_LABELS[action.calledShape]}`;
-		else {
-			const note = effectNote(action.card);
-			if (note) text += ` — ${note}`;
-		}
-		this.#pushLog('you', text + '.');
-		this.#playFeedback(HUMAN, action);
-		this.#afterMove();
-	}
-
-	// --- Turn flow ---
-
-	#afterMove() {
-		const s = this.state;
-		if (!s) return;
-		this.#checkLastCard();
-		if (s.phase === 'finished') {
-			this.#endGame();
-			return;
-		}
-		if (s.currentPlayerIndex !== HUMAN) {
-			void this.#runAI();
-		}
-	}
-
-	async #runAI() {
-		this.busy = true;
-		let firstStep = true;
-		while (
-			this.state &&
-			this.state.phase === 'playing' &&
-			this.state.currentPlayerIndex !== HUMAN
-		) {
-			const s = this.state;
-			const idx = s.currentPlayerIndex;
-			const player = s.players[idx];
-			if (!player) break;
-			this.thinkingName = player.name;
-			await delay(firstStep ? AI_THINK_MS : AI_STEP_MS);
-			firstStep = false;
-			// Guard: state may have been reset (e.g. user left) while awaiting.
-			if (!this.state || this.state !== s) return;
-
-			const move: PlayAction | 'draw' =
-				player.kind === 'tee-noble'
-					? selectMoveTeeNoble(s, idx)
-					: player.kind === 'computer'
-						? selectMove(s, idx, player.difficulty)
-						: 'draw';
-
-			const before = player.hand.length;
-			try {
-				if (move === 'draw') {
-					const pick = s.pendingEffect?.kind === 'pick' ? s.pendingEffect.total : 0;
-					this.state = drawCard(s, idx);
-					const after = this.state.players[idx]?.hand.length ?? before;
-					const drew = after - before;
-					this.#pushLog(
-						'them',
-						pick > 0
-							? `${player.name} picked ${drew} card${drew === 1 ? '' : 's'}.`
-							: `${player.name} went to market.`
-					);
-					this.#flightId += 1;
-					this.lastDraw = { id: this.#flightId, seat: idx };
-					sound.play('draw');
-				} else if (move.kind === 'suit') {
-					this.state = playCard(s, idx, move);
-					const note = effectNote(move.card);
-					this.#pushLog(
-						'them',
-						`${player.name} played ${cardName(move.card)}${note ? ` — ${note}` : ''}.`
-					);
-					this.#playFeedback(idx, move);
-				} else {
-					this.state = playCard(s, idx, move);
-					this.#pushLog(
-						'them',
-						`${player.name} played Whot — called ${SHAPE_LABELS[move.calledShape]}.`
-					);
-					this.#playFeedback(idx, move);
-				}
-				this.#checkLastCard();
-			} catch {
-				// Engine rejected the AI move (shouldn't happen) — fall back to a draw
-				// to keep the game from deadlocking.
-				try {
-					this.state = drawCard(s, idx);
-				} catch {
-					break;
-				}
-			}
-		}
-		this.busy = false;
-		this.thinkingName = null;
-		if (this.state?.phase === 'finished') this.#endGame();
-	}
-
-	#endGame() {
-		this.busy = false;
-		this.thinkingName = null;
-		const won = this.winnerIsHuman;
-		const s = this.state;
-		this.#pushLog(
-			'system',
-			won ? 'You emptied your hand — you win! 🎉' : `${s?.winner?.name ?? 'Opponent'} wins.`
-		);
-		this.announce = null;
-		if (won) {
-			sound.play('win');
-			this.winBurst += 1;
-		} else {
-			sound.play('lose');
-		}
-
-		if (this.isTeeGame) {
-			this.tee = resolveChallenge(this.tee, won ? 'won' : 'lost');
-		} else if (this.config.opponents === 1) {
-			// Tee-Noble only stalks one-on-one duels.
-			this.tee = afterGame(this.tee, won);
-			if (isChallengePending(this.tee)) this.teeChallenge = true;
-		}
-		this.screen = 'result';
-	}
-
-	// --- Tee-Noble challenge ---
-
-	acceptTee() {
-		this.tee = acceptChallenge(this.tee);
-		this.teeChallenge = false;
-		this.#startGame('tee');
-	}
-
-	declineTee() {
-		this.tee = declineChallenge(this.tee);
-		this.teeChallenge = false;
-	}
-
-	get difficultyLabel(): string {
-		return DIFFICULTY_LABELS[this.config.difficulty];
+	#pushLog(who: LogEntry['who'], text: string): void {
+		this.#logId += 1;
+		this.log = [...this.log, { id: this.#logId, who, text }].slice(-40);
 	}
 }
-
-export const DIFFICULTY_META: { id: Difficulty; label: string; blurb: string }[] = [
-	{ id: 'pikin', label: 'Pikin', blurb: 'Pure beginner. Plays at random.' },
-	{ id: 'smallz', label: 'Smallz', blurb: 'Learns to thin its hand.' },
-	{ id: 'isabiSmall', label: 'iSabiSmall', blurb: 'Starts using action cards.' },
-	{ id: 'chief', label: 'Chief', blurb: 'Hunts the player with fewest cards.' },
-	{ id: 'egbon', label: 'Ẹgbọn Àdúgbò', blurb: 'Reads suits and calls Whot smartly.' },
-	{ id: 'jagaban', label: 'Jagaban', blurb: 'Anticipates and sets up plays. Ruthless.' }
-];
 
 export const game = new GameController();
