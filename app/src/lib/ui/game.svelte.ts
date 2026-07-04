@@ -522,6 +522,12 @@ export class GameController {
 			);
 		} else if (this.selected.length === 0) {
 			if (!this.canPlayCard(card)) return; // the lead card must be legal
+			// Nothing to stack (you hold only one of this number) → play it now.
+			const sameNumber = this.myHand.filter((c) => c.kind === 'suit' && c.value === card.value).length;
+			if (sameNumber <= 1) {
+				this.playSuit(card);
+				return;
+			}
 			this.selected = [card];
 		} else if (card.value === this.selectedValue) {
 			this.selected = [...this.selected, card];

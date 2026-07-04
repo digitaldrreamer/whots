@@ -38,6 +38,9 @@
 		if (!view) return '';
 		if (game.thinkingName) return `${game.thinkingName} is thinking…`;
 		if (!game.isMyTurn) return '';
+		if (game.selected.length > 0) {
+			return `Stacking ${game.selected.length} — tap more of the same number, or press Play.`;
+		}
 		if (game.pendingPick > 0) {
 			return `You're hit with Pick ${game.pendingPick} — counter with a 2 or 5, or go to market.`;
 		}
