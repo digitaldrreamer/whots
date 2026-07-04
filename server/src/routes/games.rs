@@ -165,21 +165,53 @@ pub async fn create(
         })
         .collect();
 
-    let game_state = create_game(seats, body.mode);
+    let game_id = persist_new_game(&app, body.mode, seats, claims.sub).await?;
+
+    // Notify every other human seat of the invite
+    for spec in &body.seats {
+        if let SeatSpec::Human { user_id } = spec {
+            if *user_id != claims.sub {
+                notification_store::push(
+                    &app.db,
+                    &app.notify_txs,
+                    *user_id,
+                    "game_invite",
+                    serde_json::json!({ "game_id": game_id, "from_username": claims.username }),
+                )
+                .await;
+            }
+        }
+    }
+
+    Ok((StatusCode::CREATED, Json(CreateGameResponse { game_id })))
+}
+
+/// Deal a game from already-resolved seats, persist it (Postgres `games` +
+/// `game_seats`, Redis snapshot), and return its id. Shared by `POST /games` and
+/// the lobby's `POST /rooms/:id/start`. Does NOT send invites/notifications —
+/// each caller does its own fan-out.
+pub async fn persist_new_game(
+    app: &AppState,
+    mode: GameMode,
+    seats: Vec<Seat>,
+    created_by: Uuid,
+) -> Result<Uuid, AppError> {
+    let game_state = create_game(seats, mode);
     let game_id = game_state.id;
 
     sqlx::query("INSERT INTO games (id, mode, status, created_by) VALUES ($1, $2, 'playing', $3)")
         .bind(game_id)
-        .bind(body.mode.to_db_str())
-        .bind(claims.sub)
+        .bind(mode.to_db_str())
+        .bind(created_by)
         .execute(&app.db)
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
 
-    for (idx, spec) in body.seats.iter().enumerate() {
-        let (uid, is_ai, difficulty_str) = match spec {
-            SeatSpec::Human { user_id } => (Some(*user_id), false, None),
-            SeatSpec::Ai { difficulty, .. } => (None, true, Some(difficulty.to_db_str())),
+    // Seat order is preserved by create_game, so game_state.seats[idx] is seat idx.
+    for (idx, seat) in game_state.seats.iter().enumerate() {
+        let (uid, is_ai, difficulty_str) = match &seat.kind {
+            SeatKind::Human { user_id } => (Some(*user_id), false, None),
+            SeatKind::Ai { difficulty } => (None, true, Some(difficulty.to_db_str())),
         };
         sqlx::query(
             "INSERT INTO game_seats (game_id, seat_index, user_id, is_ai, ai_difficulty)
@@ -204,23 +236,7 @@ pub async fn create(
         .await
         .map_err(AppError::Internal)?;
 
-    // Notify every other human seat of the invite
-    for spec in &body.seats {
-        if let SeatSpec::Human { user_id } = spec {
-            if *user_id != claims.sub {
-                notification_store::push(
-                    &app.db,
-                    &app.notify_txs,
-                    *user_id,
-                    "game_invite",
-                    serde_json::json!({ "game_id": game_id, "from_username": claims.username }),
-                )
-                .await;
-            }
-        }
-    }
-
-    Ok((StatusCode::CREATED, Json(CreateGameResponse { game_id })))
+    Ok(game_id)
 }
 
 // ── GET /games/:id ─────────────────────────────────────────────────────────────

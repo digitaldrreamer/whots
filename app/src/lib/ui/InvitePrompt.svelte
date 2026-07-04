@@ -16,6 +16,26 @@
 	</div>
 {/if}
 
+{#if lobby.pendingRoomInvite && !lobby.room}
+	<div class="scrim">
+		<div class="card">
+			<div class="emoji">👥</div>
+			<span class="kicker">Room invite</span>
+			<h2>{lobby.pendingRoomInvite.from} invited you to a room</h2>
+			<div class="btns">
+				<button
+					class="accept"
+					onclick={() => {
+						const r = lobby.pendingRoomInvite;
+						if (r) lobby.joinRoom(r.roomId);
+					}}>Join room</button
+				>
+				<button class="decline" onclick={() => lobby.declineRoomInvite()}>Decline</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 {#if lobby.toast}
 	<div class="toast">{lobby.toast}</div>
 {/if}

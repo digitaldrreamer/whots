@@ -4,6 +4,7 @@
 	import Board from '$lib/ui/Board.svelte';
 	import Result from '$lib/ui/Result.svelte';
 	import InvitePrompt from '$lib/ui/InvitePrompt.svelte';
+	import RoomComposer from '$lib/ui/RoomComposer.svelte';
 </script>
 
 <svelte:head>
@@ -29,8 +30,9 @@
 	{/if}
 {/if}
 
-<!-- Global overlays: game invites + toasts, available on every screen -->
+<!-- Global overlays: game invites + toasts + room composer, on every screen -->
 <InvitePrompt />
+<RoomComposer />
 
 <style>
 	.connecting {

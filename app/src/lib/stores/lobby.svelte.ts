@@ -4,7 +4,15 @@ import { NotifySocket } from '$lib/api/notify-socket';
 import * as social from '$lib/api/social';
 import * as mm from '$lib/api/matchmaking';
 import { acceptGame, declineGame, createGame } from '$lib/api/games';
-import type { FriendRow, GameMode, Notification, PublicUser } from '$lib/api/types';
+import * as rooms from '$lib/api/rooms';
+import type {
+	Difficulty,
+	FriendRow,
+	GameMode,
+	Notification,
+	PublicUser,
+	RoomView
+} from '$lib/api/types';
 
 class LobbyStore {
 	friends = $state<FriendRow[]>([]);
@@ -13,6 +21,9 @@ class LobbyStore {
 	inQueue = $state(false);
 	queueMode = $state<GameMode | null>(null);
 	pendingInvite = $state<{ gameId: string; from: string } | null>(null);
+	// Multi-seat room lobby.
+	room = $state<RoomView | null>(null);
+	pendingRoomInvite = $state<{ roomId: string; from: string } | null>(null);
 	toast = $state<string | null>(null);
 	error = $state<string | null>(null);
 
@@ -45,6 +56,7 @@ class LobbyStore {
 
 	#onNotification(n: Notification): void {
 		const gid = typeof n.payload?.game_id === 'string' ? n.payload.game_id : undefined;
+		const rid = typeof n.payload?.room_id === 'string' ? n.payload.room_id : undefined;
 		const from = typeof n.payload?.from_username === 'string' ? n.payload.from_username : 'Someone';
 		switch (n.kind) {
 			case 'match_found':
@@ -62,6 +74,24 @@ class LobbyStore {
 				break;
 			case 'game_declined':
 				this.#flash(`${from} declined your invite`);
+				break;
+			case 'lobby_invite':
+				if (rid) this.pendingRoomInvite = { roomId: rid, from };
+				break;
+			case 'lobby_update':
+				if (rid && this.room?.id === rid) void this.#refreshRoom(rid);
+				break;
+			case 'lobby_closed':
+				if (rid && this.room?.id === rid) {
+					this.room = null;
+					this.#flash('The host closed the room');
+				}
+				break;
+			case 'game_start':
+				if (gid) {
+					this.room = null;
+					game.joinExisting(gid);
+				}
 				break;
 		}
 	}
@@ -151,6 +181,90 @@ class LobbyStore {
 		await declineGame(inv.gameId).catch(() => undefined);
 	}
 
+	// ── Rooms (multi-seat lobby) ─────────────────────────────────────────────────────
+	async createRoom(mode: GameMode): Promise<void> {
+		this.error = null;
+		try {
+			const { room_id } = await rooms.createRoom(mode);
+			await this.#refreshRoom(room_id);
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not create room.';
+		}
+	}
+
+	async #refreshRoom(id: string): Promise<void> {
+		try {
+			this.room = await rooms.getRoom(id);
+		} catch {
+			/* room may have closed — leave prior state, a lobby_closed will clear it */
+		}
+	}
+
+	async inviteToRoom(friend: FriendRow): Promise<void> {
+		if (!this.room) return;
+		try {
+			await rooms.inviteToRoom(this.room.id, friend.id);
+			this.#flash(`Invited ${friend.display_name}`);
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not invite.';
+		}
+	}
+
+	async joinRoom(id: string): Promise<void> {
+		this.pendingRoomInvite = null;
+		this.error = null;
+		try {
+			await rooms.joinRoom(id);
+			await this.#refreshRoom(id);
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not join room.';
+		}
+	}
+
+	declineRoomInvite(): void {
+		this.pendingRoomInvite = null;
+	}
+
+	async addAi(difficulty: Difficulty): Promise<void> {
+		if (!this.room) return;
+		try {
+			await rooms.addRoomAi(this.room.id, difficulty);
+			await this.#refreshRoom(this.room.id);
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not add AI.';
+		}
+	}
+
+	async removeAi(index: number): Promise<void> {
+		if (!this.room) return;
+		try {
+			await rooms.removeRoomAi(this.room.id, index);
+			await this.#refreshRoom(this.room.id);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	async leaveRoom(): Promise<void> {
+		const r = this.room;
+		if (!r) return;
+		this.room = null;
+		await rooms.leaveRoom(r.id).catch(() => undefined);
+	}
+
+	async startRoom(): Promise<void> {
+		const r = this.room;
+		if (!r) return;
+		this.error = null;
+		try {
+			const { game_id } = await rooms.startRoom(r.id);
+			this.room = null;
+			game.joinExisting(game_id);
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not start game.';
+		}
+	}
+
 	#flash(msg: string): void {
 		this.toast = msg;
 		setTimeout(() => {
@@ -165,6 +279,8 @@ class LobbyStore {
 		this.inQueue = false;
 		this.queueMode = null;
 		this.pendingInvite = null;
+		this.room = null;
+		this.pendingRoomInvite = null;
 	}
 }
 

@@ -7,18 +7,32 @@
 	import { SHAPE_COLORS } from './theme.js';
 	import Rules from './Rules.svelte';
 	import SignIn from './SignIn.svelte';
-	import Friends from './Friends.svelte';
 
+	type Section = 'play' | 'online' | 'friends' | 'profile';
+
+	let section = $state<Section>('play');
 	let mode = $state<GameMode>('stack');
 	let difficulty = $state<Difficulty>('chief');
 	let opponents = $state(1);
 	let showRules = $state(false);
-	let showFriends = $state(false);
+	let query = $state('');
+
+	const authed = $derived(session.status === 'authed');
+
+	const NAV: { id: Section; icon: string; label: string }[] = [
+		{ id: 'play', icon: '🎴', label: 'Play' },
+		{ id: 'online', icon: '🌐', label: 'Online' },
+		{ id: 'friends', icon: '👥', label: 'Friends' },
+		{ id: 'profile', icon: '👤', label: 'Profile' }
+	];
 
 	const HERO_SHAPES = ['circle', 'triangle', 'cross', 'square', 'star'] as const;
 
 	function deal() {
 		game.start({ mode, difficulty, opponents });
+	}
+	async function onSearch() {
+		await lobby.search(query);
 	}
 </script>
 
@@ -26,101 +40,178 @@
 	<div class="hero">
 		<div class="hero-shapes">
 			{#each HERO_SHAPES as s (s)}
-				<Shape shape={s} size={30} color={SHAPE_COLORS[s]} />
+				<Shape shape={s} size={26} color={SHAPE_COLORS[s]} />
 			{/each}
 		</div>
 		<h1>WHOT<span class="s">!</span></h1>
 		<p class="tag">The Nigerian card classic. Match, disrupt, empty your hand first.</p>
 	</div>
 
-	<div class="panel">
-		<div class="field">
-			<span class="label">Player</span>
-			{#if session.status === 'authed' && session.user}
-				<div class="who">
-					<span>Playing as <strong>{session.user.display_name}</strong>{#if session.user.is_guest}<em> (guest)</em>{/if}</span>
-					<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
+	<div class="stage">
+		<!-- ── Play (vs AI) ── -->
+		{#if section === 'play'}
+			<div class="panel">
+				<div class="field">
+					<span class="label">Mode</span>
+					<div class="segmented">
+						<button class:on={mode === 'stack'} onclick={() => (mode = 'stack')}>
+							Stack<small>Counter & pile on penalties</small>
+						</button>
+						<button class:on={mode === 'no_stack'} onclick={() => (mode = 'no_stack')}>
+							No-stack<small>Penalties resolve at once</small>
+						</button>
+					</div>
 				</div>
-			{:else if session.status === 'loading'}
-				<span class="hint">…</span>
-			{:else}
-				<SignIn />
-			{/if}
-		</div>
 
-		{#if session.status === 'authed'}
-			<div class="field">
-				<span class="label">Play online</span>
-				{#if lobby.inQueue}
+				<div class="field">
+					<span class="label">Opponents</span>
+					<div class="segmented small">
+						{#each [1, 2, 3] as n (n)}
+							<button class:on={opponents === n} onclick={() => (opponents = n)}>{n}</button>
+						{/each}
+					</div>
+					{#if opponents === 1}
+						<span class="hint">One-on-one duels can summon Tee-Noble…</span>
+					{/if}
+				</div>
+
+				<div class="field">
+					<span class="label">Difficulty</span>
+					<div class="diffs">
+						{#each DIFFICULTY_META as d (d.id)}
+							<button
+								class="diff"
+								class:on={difficulty === d.id}
+								onclick={() => (difficulty = d.id)}
+							>
+								<span class="diff-name">{d.label}</span>
+								<span class="diff-blurb">{d.blurb}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<button class="play" onclick={deal} disabled={!authed}>Deal me in</button>
+				{#if !authed}<span class="hint center">Sign in on Profile to play.</span>{/if}
+				{#if game.error}<span class="err center">{game.error}</span>{/if}
+				<button class="rules-link" onclick={() => (showRules = true)}>How to play</button>
+			</div>
+
+			<!-- ── Online (matchmaking + rooms) ── -->
+		{:else if section === 'online'}
+			<div class="panel">
+				{#if !authed}
+					<p class="signin-nudge">Sign in on <strong>Profile</strong> to play online.</p>
+				{:else if lobby.inQueue}
 					<div class="queue">
 						<span class="spinner-sm"></span>
 						<span>Finding an opponent…</span>
 						<button class="linkbtn" onclick={() => lobby.cancelMatch()}>Cancel</button>
 					</div>
 				{:else}
-					<div class="online-row">
+					<div class="field">
+						<span class="label">Quick match</span>
 						<button class="online" onclick={() => lobby.findMatch(mode)}>Find a match</button>
-						<button class="online ghost" onclick={() => (showFriends = true)}>
-							Friends{#if lobby.requests.length}<span class="badge">{lobby.requests.length}</span>{/if}
-						</button>
+						<span class="hint">A random opponent, 1-on-1, {mode === 'stack' ? 'Stack' : 'No-stack'} mode.</span>
+					</div>
+					<div class="field">
+						<span class="label">Private room</span>
+						<button class="online room" onclick={() => lobby.createRoom(mode)}>Create room</button>
+						<span class="hint">Invite friends and add AI seats — up to 6 at the table.</span>
 					</div>
 				{/if}
 				{#if lobby.error}<span class="err">{lobby.error}</span>{/if}
 			</div>
+
+			<!-- ── Friends ── -->
+		{:else if section === 'friends'}
+			<div class="panel">
+				{#if !authed}
+					<p class="signin-nudge">Sign in on <strong>Profile</strong> to add friends.</p>
+				{:else}
+					{#if lobby.requests.length > 0}
+						<div class="field">
+							<span class="label">Requests</span>
+							{#each lobby.requests as u (u.id)}
+								<div class="person">
+									<span class="who">{u.display_name}<small>@{u.username}</small></span>
+									<div class="actions">
+										<button class="mini go" onclick={() => lobby.acceptRequest(u.username)}>Accept</button>
+										<button class="mini" onclick={() => lobby.declineRequest(u.username)}>Decline</button>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<div class="field">
+						<span class="label">Your friends</span>
+						{#if lobby.friends.length === 0}
+							<p class="empty">No friends yet — search below to add someone.</p>
+						{/if}
+						{#each lobby.friends as f (f.id)}
+							<div class="person">
+								<span class="who">{f.display_name}<small>@{f.username}</small></span>
+								<div class="actions">
+									<button class="mini go" onclick={() => lobby.inviteFriend(f, mode)}>Play</button>
+									<button class="mini danger" onclick={() => lobby.unfriend(f.username)}>Remove</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+					<div class="field">
+						<span class="label">Add a friend</span>
+						<input class="search" placeholder="Search username…" bind:value={query} oninput={onSearch} />
+						{#each lobby.searchResults as u (u.id)}
+							<div class="person">
+								<span class="who">{u.display_name}<small>@{u.username}</small></span>
+								<button class="mini go" onclick={() => lobby.addFriend(u.username)}>Add</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				{#if lobby.error}<span class="err">{lobby.error}</span>{/if}
+			</div>
+
+			<!-- ── Profile ── -->
+		{:else}
+			<div class="panel">
+				{#if authed && session.user}
+					<div class="field">
+						<span class="label">Signed in</span>
+						<div class="who">
+							<span>
+								<strong>{session.user.display_name}</strong>{#if session.user.is_guest}<em> (guest)</em>{/if}
+							</span>
+							<button class="linkbtn" onclick={() => session.logout()}>Sign out</button>
+						</div>
+						{#if session.user.is_guest}
+							<span class="hint">You're a guest — register to keep your friends.</span>
+						{/if}
+					</div>
+				{:else if session.status === 'loading'}
+					<span class="hint">…</span>
+				{:else}
+					<SignIn />
+				{/if}
+			</div>
 		{/if}
-
-		<div class="field">
-			<span class="label">Mode</span>
-			<div class="segmented">
-				<button class:on={mode === 'stack'} onclick={() => (mode = 'stack')}>
-					Stack
-					<small>Counter & pile on penalties</small>
-				</button>
-				<button class:on={mode === 'no_stack'} onclick={() => (mode = 'no_stack')}>
-					No-stack
-					<small>Penalties resolve at once</small>
-				</button>
-			</div>
-		</div>
-
-		<div class="field">
-			<span class="label">Opponents</span>
-			<div class="segmented small">
-				{#each [1, 2, 3] as n (n)}
-					<button class:on={opponents === n} onclick={() => (opponents = n)}>{n}</button>
-				{/each}
-			</div>
-			{#if opponents === 1}
-				<span class="hint">One-on-one duels can summon Tee-Noble…</span>
-			{/if}
-		</div>
-
-		<div class="field">
-			<span class="label">Difficulty</span>
-			<div class="diffs">
-				{#each DIFFICULTY_META as d (d.id)}
-					<button class="diff" class:on={difficulty === d.id} onclick={() => (difficulty = d.id)}>
-						<span class="diff-name">{d.label}</span>
-						<span class="diff-blurb">{d.blurb}</span>
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		<button class="play" onclick={deal} disabled={session.status !== 'authed'}>
-			Deal me in
-		</button>
-		{#if game.error}<span class="err center">{game.error}</span>{/if}
-		<button class="rules-link" onclick={() => (showRules = true)}>How to play</button>
 	</div>
+
+	<nav class="dock" aria-label="Main navigation">
+		{#each NAV as item (item.id)}
+			<button class:on={section === item.id} onclick={() => (section = item.id)}>
+				<span class="ico">{item.icon}</span>
+				<span class="dlabel">{item.label}</span>
+				{#if item.id === 'friends' && lobby.requests.length}
+					<span class="ndot">{lobby.requests.length}</span>
+				{/if}
+			</button>
+		{/each}
+	</nav>
 </div>
 
 {#if showRules}
 	<Rules onclose={() => (showRules = false)} />
-{/if}
-
-{#if showFriends}
-	<Friends {mode} onclose={() => (showFriends = false)} />
 {/if}
 
 <style>
@@ -129,22 +220,21 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		justify-content: center;
-		padding: 2rem 1rem;
-		gap: 2rem;
+		padding: 2rem 1rem 7rem; /* room for the dock */
+		gap: 1.5rem;
 	}
 	.hero {
 		text-align: center;
 	}
 	.hero-shapes {
 		display: flex;
-		gap: 0.75rem;
+		gap: 0.7rem;
 		justify-content: center;
-		margin-bottom: 0.75rem;
+		margin-bottom: 0.6rem;
 		opacity: 0.95;
 	}
 	h1 {
-		font-size: clamp(3rem, 12vw, 5.5rem);
+		font-size: clamp(2.6rem, 11vw, 4.8rem);
 		margin: 0;
 		font-weight: 900;
 		letter-spacing: 0.02em;
@@ -156,22 +246,26 @@
 		color: var(--gold, #e8b84b);
 	}
 	.tag {
-		margin: 0.75rem auto 0;
+		margin: 0.6rem auto 0;
 		color: rgba(255, 255, 255, 0.7);
 		max-width: 26rem;
-		font-size: 1rem;
+		font-size: 0.95rem;
 	}
 
-	.panel {
+	.stage {
 		width: 100%;
 		max-width: 520px;
+		flex: 1;
+	}
+	.panel {
+		width: 100%;
 		background: rgba(10, 22, 16, 0.6);
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 20px;
 		padding: 1.5rem;
 		display: flex;
 		flex-direction: column;
-		gap: 1.4rem;
+		gap: 1.3rem;
 		backdrop-filter: blur(6px);
 	}
 	.field {
@@ -188,8 +282,19 @@
 	}
 	.hint {
 		font-size: 0.78rem;
-		color: rgba(255, 132, 155, 0.85);
+		color: rgba(255, 255, 255, 0.5);
 		font-style: italic;
+	}
+	.hint.center {
+		text-align: center;
+	}
+	.signin-nudge {
+		text-align: center;
+		color: rgba(255, 255, 255, 0.75);
+		margin: 0.5rem 0;
+	}
+	.signin-nudge strong {
+		color: var(--gold, #e8b84b);
 	}
 
 	.who {
@@ -203,49 +308,34 @@
 	.who strong {
 		color: var(--gold, #e8b84b);
 	}
+	.who small {
+		color: rgba(255, 255, 255, 0.4);
+		margin-left: 0.35rem;
+	}
 	.who em {
 		color: rgba(255, 255, 255, 0.4);
 		font-style: normal;
 		font-size: 0.82rem;
 	}
-	.online-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.5rem;
-	}
+
 	.online {
-		position: relative;
-		padding: 0.75rem;
+		padding: 0.85rem;
 		border-radius: 12px;
 		border: none;
 		background: linear-gradient(135deg, #2f9e6f, #22795a);
 		color: #fff;
 		font-weight: 800;
-		font-size: 0.95rem;
+		font-size: 0.98rem;
 		cursor: pointer;
 		transition: filter 0.15s ease, transform 0.24s var(--spring);
+	}
+	.online.room {
+		background: linear-gradient(135deg, #e8b84b, #d99a2b);
+		color: #1a1205;
 	}
 	.online:hover {
 		filter: brightness(1.08);
 		transform: translateY(-2px);
-	}
-	.online.ghost {
-		background: rgba(255, 255, 255, 0.06);
-		border: 1px solid rgba(255, 255, 255, 0.12);
-	}
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 18px;
-		height: 18px;
-		padding: 0 5px;
-		margin-left: 6px;
-		border-radius: 999px;
-		background: #ff5470;
-		color: #fff;
-		font-size: 0.72rem;
-		font-weight: 800;
 	}
 	.queue {
 		display: flex;
@@ -286,11 +376,50 @@
 	.err.center {
 		text-align: center;
 	}
-	.play:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-		filter: none;
-		transform: none;
+
+	/* friends list */
+	.person {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.15rem 0;
+	}
+	.actions {
+		display: flex;
+		gap: 0.4rem;
+	}
+	.mini {
+		border: none;
+		border-radius: 7px;
+		padding: 0.35rem 0.7rem;
+		font-size: 0.78rem;
+		font-weight: 700;
+		cursor: pointer;
+		background: rgba(255, 255, 255, 0.08);
+		color: rgba(255, 255, 255, 0.8);
+	}
+	.mini.go {
+		background: #2f9e6f;
+		color: #fff;
+	}
+	.mini.danger {
+		background: rgba(255, 84, 112, 0.18);
+		color: #ff8fa3;
+	}
+	.empty {
+		color: rgba(255, 255, 255, 0.4);
+		font-size: 0.85rem;
+		margin: 0;
+	}
+	.search {
+		width: 100%;
+		padding: 0.6rem 0.8rem;
+		border-radius: 10px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(255, 255, 255, 0.04);
+		color: #fff;
+		font-size: 0.9rem;
 	}
 
 	.segmented {
@@ -379,9 +508,13 @@
 			transform 0.24s var(--spring),
 			filter 0.15s ease;
 	}
-	.play:hover {
+	.play:hover:not(:disabled) {
 		filter: brightness(1.06);
 		transform: translateY(-2px);
+	}
+	.play:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 	.rules-link {
 		background: none;
@@ -392,6 +525,94 @@
 		font-size: 0.85rem;
 	}
 
+	/* ── Dock / bottom-nav ── */
+	.dock {
+		position: fixed;
+		left: 50%;
+		bottom: 1rem;
+		transform: translateX(-50%);
+		z-index: 40;
+		display: flex;
+		gap: 0.3rem;
+		padding: 0.45rem;
+		background: rgba(10, 22, 16, 0.82);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 20px;
+		backdrop-filter: blur(14px);
+		box-shadow: 0 12px 44px rgba(0, 0, 0, 0.5);
+	}
+	.dock button {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		padding: 0.45rem 1rem;
+		border: none;
+		background: none;
+		color: rgba(255, 255, 255, 0.6);
+		cursor: pointer;
+		border-radius: 14px;
+		transition: background 0.18s, color 0.18s;
+	}
+	.dock .ico {
+		font-size: 1.5rem;
+		line-height: 1;
+		transition: transform 0.18s cubic-bezier(0.2, 1.3, 0.5, 1);
+	}
+	.dock button:hover .ico {
+		transform: translateY(-5px) scale(1.3);
+	}
+	.dock .dlabel {
+		font-size: 0.64rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+	}
+	.dock button.on {
+		color: #fff;
+		background: rgba(232, 184, 75, 0.16);
+	}
+	.ndot {
+		position: absolute;
+		top: 3px;
+		right: 10px;
+		min-width: 16px;
+		height: 16px;
+		padding: 0 4px;
+		border-radius: 999px;
+		background: #ff5470;
+		color: #fff;
+		font-size: 0.66rem;
+		font-weight: 800;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	@media (max-width: 640px) {
+		.dock {
+			left: 0;
+			right: 0;
+			bottom: 0;
+			width: 100%;
+			transform: none;
+			justify-content: space-around;
+			gap: 0;
+			padding: 0.35rem 0.2rem calc(0.35rem + env(safe-area-inset-bottom, 0px));
+			border-radius: 16px 16px 0 0;
+		}
+		.dock button {
+			flex: 1;
+			padding: 0.35rem;
+		}
+		.dock .ico {
+			font-size: 1.35rem;
+		}
+		/* No magnify on touch. */
+		.dock button:hover .ico {
+			transform: none;
+		}
+	}
 	@media (max-width: 420px) {
 		.diffs {
 			grid-template-columns: 1fr;

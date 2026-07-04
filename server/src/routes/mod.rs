@@ -4,6 +4,7 @@ pub mod games;
 pub mod health;
 pub mod matchmaking;
 pub mod notifications;
+pub mod rooms;
 pub mod users;
 pub mod ws;
 
@@ -26,6 +27,7 @@ pub fn all_routes() -> Router<AppState> {
         .nest("/games", game_routes())
         .nest("/matchmaking", matchmaking_routes())
         .nest("/notifications", notification_routes())
+        .nest("/rooms", room_routes())
         .nest("/ws", ws_routes())
 }
 
@@ -90,6 +92,28 @@ fn game_routes() -> Router<AppState> {
         .route("/:id", get(games::get_by_id).delete(games::cancel))
         .route("/:id/accept", post(games::accept))
         .route("/:id/decline", post(games::decline))
+        .layer(GovernorLayer { config: conf })
+}
+
+fn room_routes() -> Router<AppState> {
+    // Lobby actions are interactive (adding AIs, inviting friends, joining), so a
+    // lenient limit: burst of 10, then ~1 every 2 s per IP.
+    let conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .period(Duration::from_secs(2))
+            .burst_size(10)
+            .finish()
+            .unwrap(),
+    );
+    Router::new()
+        .route("/", post(rooms::create))
+        .route("/:id", get(rooms::get_room))
+        .route("/:id/invite", post(rooms::invite))
+        .route("/:id/join", post(rooms::join))
+        .route("/:id/leave", post(rooms::leave))
+        .route("/:id/ai", post(rooms::add_ai))
+        .route("/:id/ai/:index", delete(rooms::remove_ai))
+        .route("/:id/start", post(rooms::start))
         .layer(GovernorLayer { config: conf })
 }
 

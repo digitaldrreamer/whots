@@ -121,10 +121,35 @@ export interface FriendRow {
 export interface Notification {
 	id: string;
 	user_id: string;
-	kind: 'game_invite' | 'game_accepted' | 'game_declined' | string;
-	payload: { game_id?: string; from_username?: string; [k: string]: unknown };
+	kind:
+		| 'game_invite'
+		| 'game_accepted'
+		| 'game_declined'
+		| 'match_found'
+		| 'lobby_invite'
+		| 'lobby_update'
+		| 'lobby_closed'
+		| 'game_start'
+		| string;
+	payload: { game_id?: string; room_id?: string; from_username?: string; [k: string]: unknown };
 	read: boolean;
 	created_at: string;
+}
+
+// ── Rooms / pre-game lobby ──────────────────────────────────────────────────────
+export interface RoomMember {
+	user_id: string;
+	username: string;
+}
+
+export interface RoomView {
+	id: string;
+	host_id: string;
+	am_i_host: boolean;
+	mode: GameMode;
+	members: RoomMember[];
+	ais: Difficulty[];
+	max_slots: number;
 }
 
 export interface MatchmakingJoinResponse {
