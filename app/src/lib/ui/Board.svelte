@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Card as CardT } from '$lib/api/types';
+	import { onMount } from 'svelte';
 	import { scale } from 'svelte/transition';
 	import { backOut } from 'svelte/easing';
 	import { game } from './game.svelte.js';
@@ -18,7 +19,9 @@
 	import { net } from '$lib/stores/net.svelte';
 
 	// Poll latency in the background while at the table; stop on unmount.
-	$effect(() => {
+	// MUST be onMount, not $effect: startPolling()/measure() read+write net.running,
+	// which inside a reactive effect self-triggers → effect_update_depth_exceeded.
+	onMount(() => {
 		net.startPolling();
 		return () => net.stopPolling();
 	});
