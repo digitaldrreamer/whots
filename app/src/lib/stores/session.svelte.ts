@@ -93,7 +93,7 @@ class SessionStore {
 			const d = await finRes.json().catch(() => ({}));
 			throw new ApiError(finRes.status, d?.error ?? 'Could not save passkey');
 		}
-		if (this.user) this.user = { ...this.user, is_guest: false };
+		if (this.user) this.user = { ...this.user, is_guest: false, has_passkey: true };
 	}
 
 	/** Sign in with a passkey. `login/start` is public; `finish` goes through the

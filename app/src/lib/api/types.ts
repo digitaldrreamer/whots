@@ -101,6 +101,7 @@ export interface PublicUser {
 	avatar_url: string | null;
 	is_guest: boolean;
 	beat_tee_noble: boolean;
+	has_passkey: boolean;
 }
 
 // What the browser receives from our SvelteKit auth endpoints. The refresh token

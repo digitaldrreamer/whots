@@ -44,11 +44,24 @@ pub(crate) async fn issue_tokens(user: User, state: &AppState) -> Result<AuthRes
         .execute(&state.db)
         .await?;
 
+    let user_id = user.id;
+    let mut public: PublicUser = user.into();
+    public.has_passkey = user_has_passkey(&state.db, user_id).await;
+
     Ok(AuthResponse {
-        user: user.into(),
+        user: public,
         access_token,
         refresh_token,
     })
+}
+
+/// Does this user have at least one passkey registered?
+pub(crate) async fn user_has_passkey(db: &sqlx::PgPool, user_id: uuid::Uuid) -> bool {
+    sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM passkeys WHERE user_id = $1)")
+        .bind(user_id)
+        .fetch_one(db)
+        .await
+        .unwrap_or(false)
 }
 
 // ── POST /auth/guest ───────────────────────────────────────────────────────────
@@ -193,7 +206,10 @@ pub async fn upgrade(
     .ok_or_else(|| AppError::BadRequest("this account is already registered".into()))?;
 
     send_verification_for(&user, &state).await;
-    Ok(Json(user.into()))
+    let user_id = user.id;
+    let mut public: PublicUser = user.into();
+    public.has_passkey = user_has_passkey(&state.db, user_id).await;
+    Ok(Json(public))
 }
 
 async fn send_verification_for(user: &User, state: &AppState) {

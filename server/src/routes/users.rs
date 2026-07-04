@@ -27,7 +27,9 @@ pub async fn me(
         .await?
         .ok_or(AppError::NotFound("user not found".into()))?;
 
-    Ok(Json(user.into()))
+    let mut public: PublicUser = user.into();
+    public.has_passkey = crate::routes::auth::user_has_passkey(&state.db, claims.sub).await;
+    Ok(Json(public))
 }
 
 // ── PUT /users/me ──────────────────────────────────────────────────────────────

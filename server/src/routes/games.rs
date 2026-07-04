@@ -349,6 +349,7 @@ pub async fn get_by_id(
                     avatar_url: r.avatar_url.clone(),
                     is_guest: r.is_guest.unwrap_or(false),
                     beat_tee_noble: false, // not surfaced in the in-game seat list
+                    has_passkey: false,
                 }),
             })
         })

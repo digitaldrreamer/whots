@@ -47,7 +47,7 @@
 			{/if}
 
 			<div class="btns">
-				<button class="again" onclick={() => game.start(game.config)}>Play again</button>
+				<button class="again" onclick={() => game.playAgain()}>Play again</button>
 				<button class="menu" onclick={() => game.toMenu()}>Main menu</button>
 			</div>
 		</div>

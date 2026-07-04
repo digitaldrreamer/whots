@@ -28,6 +28,9 @@ pub struct PublicUser {
     pub avatar_url: Option<String>,
     pub is_guest: bool,
     pub beat_tee_noble: bool,
+    /// Whether the user has at least one passkey (filled by the handlers that
+    /// have DB access; defaults false via `From<User>`).
+    pub has_passkey: bool,
 }
 
 impl From<User> for PublicUser {
@@ -39,6 +42,7 @@ impl From<User> for PublicUser {
             avatar_url: u.avatar_url,
             is_guest: u.is_guest,
             beat_tee_noble: u.beat_tee_noble,
+            has_passkey: false,
         }
     }
 }

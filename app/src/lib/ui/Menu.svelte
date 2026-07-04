@@ -247,9 +247,18 @@
 						{#if session.user.beat_tee_noble}
 							<div class="badge-chip">🏆 Tee-Noble Slayer</div>
 						{/if}
+						{#if session.user.has_passkey}
+							<div class="badge-chip pk">🔑 Passkey enabled</div>
+						{/if}
 						{#if session.passkeysSupported}
-							<button class="online room" onclick={addPasskey} disabled={pkBusy}>
-								{pkBusy ? '…' : pkDone ? '✓ Passkey saved' : '🔑 Add a passkey (no email)'}
+							<button class="online" onclick={addPasskey} disabled={pkBusy}>
+								{pkBusy
+									? '…'
+									: pkDone
+										? '✓ Passkey saved'
+										: session.user.has_passkey
+											? '🔑 Add another passkey'
+											: '🔑 Add a passkey (no email)'}
 							</button>
 							{#if pkError}<span class="err">{pkError}</span>{/if}
 						{/if}
@@ -516,6 +525,11 @@
 		padding: 0.3rem 0.7rem;
 		border-radius: 999px;
 		box-shadow: 0 3px 12px rgba(232, 184, 75, 0.3);
+	}
+	.badge-chip.pk {
+		background: rgba(47, 158, 111, 0.2);
+		color: #7fe0b3;
+		box-shadow: none;
 	}
 	.upgrade {
 		display: flex;

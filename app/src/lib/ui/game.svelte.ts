@@ -347,6 +347,34 @@ export class GameController {
 		await this.#launch(this.config.mode, [{ kind: 'ai', difficulty: 'tee_noble', name: 'Tee-Noble' }], true);
 	}
 
+	/** Rematch: recreate the SAME table (same humans + AIs) from the finished
+	 * game's seats — so a room doesn't collapse into a 1v1. Other humans get a
+	 * fresh invite; AIs are re-seated at their difficulties. */
+	async playAgain(): Promise<void> {
+		if (this.isTeeGame) {
+			await this.startTee();
+			return;
+		}
+		const v = this.view;
+		if (!v || v.seats.length < 2) {
+			await this.start(this.config);
+			return;
+		}
+		const seats: SeatSpec[] = v.seats.map((s) =>
+			s.kind.kind === 'human'
+				? { kind: 'human', user_id: s.kind.user_id }
+				: { kind: 'ai', difficulty: s.kind.difficulty, name: s.name }
+		);
+		this.error = null;
+		try {
+			const gameId = await createGame({ mode: v.mode, seats });
+			this.joinExisting(gameId);
+		} catch (e) {
+			this.error = e instanceof Error ? e.message : 'Could not restart the game.';
+			this.screen = 'menu';
+		}
+	}
+
 	async #launch(mode: GameMode, aiSeats: SeatSpec[], isTee: boolean): Promise<void> {
 		this.error = null;
 		if (session.status !== 'authed' || !session.user) {
