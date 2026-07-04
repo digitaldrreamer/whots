@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { session, ApiError } from '$lib/stores/session.svelte';
+	import { forgotPassword } from '$lib/api/auth';
+
+	let forgotMode = $state(false);
+	let forgotSent = $state(false);
+	let forgotEmail = $state('');
 
 	type Tab = 'guest' | 'login' | 'register';
 	let tab = $state<Tab>('guest');
@@ -42,6 +47,11 @@
 		return run(() => session.guest(username.trim()));
 	};
 	const login = () => run(() => session.login(identifier.trim(), password));
+	const forgot = () =>
+		run(async () => {
+			await forgotPassword(forgotEmail.trim());
+			forgotSent = true;
+		});
 	const register = () => {
 		const err = usernameError(username.trim());
 		if (err) {
@@ -73,10 +83,23 @@
 		</div>
 		<p class="note">No account needed — jump straight in. You can register later to keep friends.</p>
 	{:else if tab === 'login'}
-		<input placeholder="Username or email" bind:value={identifier} disabled={busy} />
-		<input type="password" placeholder="Password" bind:value={password} disabled={busy}
-			onkeydown={(e) => e.key === 'Enter' && login()} />
-		<button class="go" onclick={login} disabled={busy}>{busy ? '…' : 'Log in'}</button>
+		{#if forgotMode}
+			{#if forgotSent}
+				<p class="note">If that email is registered, a reset link is on its way — check your inbox.</p>
+				<button class="linkbtn" onclick={() => { forgotMode = false; forgotSent = false; }}>← Back to log in</button>
+			{:else}
+				<input type="email" placeholder="Your account email" bind:value={forgotEmail} disabled={busy}
+					onkeydown={(e) => e.key === 'Enter' && forgot()} />
+				<button class="go" onclick={forgot} disabled={busy}>{busy ? '…' : 'Send reset link'}</button>
+				<button class="linkbtn" onclick={() => (forgotMode = false)}>← Back to log in</button>
+			{/if}
+		{:else}
+			<input placeholder="Username or email" bind:value={identifier} disabled={busy} />
+			<input type="password" placeholder="Password" bind:value={password} disabled={busy}
+				onkeydown={(e) => e.key === 'Enter' && login()} />
+			<button class="go" onclick={login} disabled={busy}>{busy ? '…' : 'Log in'}</button>
+			<button class="linkbtn forgot" onclick={() => (forgotMode = true)}>Forgot password?</button>
+		{/if}
 	{:else}
 		<input placeholder="Username" bind:value={username} minlength="3" maxlength="30" disabled={busy} />
 		<input type="email" placeholder="Email" bind:value={email} disabled={busy} />
@@ -156,5 +179,20 @@
 	.err {
 		font-size: 0.78rem;
 		color: #ff8fa3;
+	}
+	.linkbtn {
+		background: none;
+		border: none;
+		color: rgba(255, 255, 255, 0.55);
+		text-decoration: underline;
+		cursor: pointer;
+		font-size: 0.8rem;
+		padding: 0.2rem;
+		align-self: center;
+	}
+	.linkbtn.forgot {
+		align-self: flex-end;
+		text-decoration: none;
+		color: rgba(255, 255, 255, 0.45);
 	}
 </style>

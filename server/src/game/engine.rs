@@ -304,7 +304,11 @@ fn resolve_play(state: &mut GameState, value: u8, n: u32, effect: Option<ActionE
         }
         Some(ActionEffect::Suspension) => {
             state.pending_effect = None;
-            state.current_seat_index = advance(state, 1 + n as usize);
+            // Skip the next n players — but never more than the other players at the
+            // table, so suspensions can't wrap around and skip your own turn. In a
+            // 1v1 this means any number of 8s just comes back to you.
+            let skip = (n as usize).min(state.seats.len().saturating_sub(1));
+            state.current_seat_index = advance(state, 1 + skip);
         }
         Some(ActionEffect::GeneralMarket) => {
             // Every *other* player owes n self-draws, settled on their own turn.
@@ -726,6 +730,28 @@ mod tests {
         assert_eq!(st.top_card, TopCard::Whot { called_shape: Shape::Star });
         assert_eq!(st.pending_effect, None);
         assert_eq!(st.current_seat_index, 1);
+    }
+
+    #[test]
+    fn stacked_suspension_never_skips_yourself_1v1() {
+        // Two 8s in a 1v1 must come back to you, not wrap around and skip your turn.
+        let mut st = state(
+            GameMode::Stack,
+            vec![
+                seat(
+                    "A",
+                    vec![
+                        suit(Shape::Triangle, 8),
+                        suit(Shape::Star, 8),
+                        suit(Shape::Circle, 3),
+                    ],
+                ),
+                seat("B", vec![suit(Shape::Cross, 10)]),
+            ],
+            (Shape::Circle, 8),
+        );
+        apply_stack(&mut st, 0, 8, &[Shape::Triangle, Shape::Star]).unwrap();
+        assert_eq!(st.current_seat_index, 0); // back to A, never self-skipped
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { GameSocket } from '$lib/api/socket';
 import { createGame } from '$lib/api/games';
-import { canPlay } from '$lib/api/rules';
+import { canPlay, sameCard } from '$lib/api/rules';
 import { session } from '$lib/stores/session.svelte';
 import type {
 	Card,
@@ -87,6 +87,10 @@ export class GameController {
 	// show "sending…" feedback and to lock input so a slow round-trip doesn't feel
 	// frozen (and taps can't queue up).
 	pending = $state(false);
+	// Cards optimistically pulled from your hand the instant you play — so a laggy
+	// round-trip doesn't leave your tap looking ignored. Reconciled on the server
+	// echo, rolled back on error.
+	#optRemoved = $state<Card[]>([]);
 	// Cards tapped for a same-number stack (stack mode). One entry per card.
 	selected = $state<Card[]>([]);
 
@@ -131,7 +135,11 @@ export class GameController {
 	}
 
 	get myHand(): Card[] {
-		return this.mySeat?.hand ?? [];
+		const hand = this.mySeat?.hand ?? [];
+		if (this.#optRemoved.length === 0) return hand;
+		// Drop the optimistically-played cards (shapes are unique within a play, so
+		// an identity match removes exactly the right ones).
+		return hand.filter((c) => !this.#optRemoved.some((r) => sameCard(c, r)));
 	}
 
 	get currentSeatIndex(): number {
@@ -169,6 +177,7 @@ export class GameController {
 
 	#clearPending(): void {
 		this.pending = false;
+		this.#optRemoved = []; // reconcile: authoritative hand takes over (or roll back)
 		if (this.#pendingTimer) {
 			clearTimeout(this.#pendingTimer);
 			this.#pendingTimer = null;
@@ -578,6 +587,7 @@ export class GameController {
 		if (!this.canAct || card.kind !== 'suit') return;
 		if (!this.canPlayCard(card)) return;
 		this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: card.shape, value: card.value } });
+		this.#optRemoved = [card];
 		this.#markPending();
 	}
 
@@ -646,6 +656,7 @@ export class GameController {
 		const value = cards[0].value;
 		const shapes = cards.map((c) => c.shape);
 		this.selected = [];
+		this.#optRemoved = cards;
 		if (shapes.length === 1) {
 			this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: shapes[0], value } });
 		} else {
@@ -677,6 +688,7 @@ export class GameController {
 				? { kind: 'call_shape', called_shape: shape }
 				: { kind: 'whot', called_shape: shape }
 		});
+		if (!opening) this.#optRemoved = [{ kind: 'whot' }]; // opening call plays no card
 		this.#markPending();
 	}
 
