@@ -12,6 +12,11 @@
 	import ShapePicker from './ShapePicker.svelte';
 	import Announce from './Announce.svelte';
 	import Confetti from './Confetti.svelte';
+	import FlightLayer from './FlightLayer.svelte';
+	import TeeNobleIntro from './TeeNobleIntro.svelte';
+
+	type Rect = { x: number; y: number; w: number; h: number };
+	type Flight = { id: number; card?: CardT; faceDown?: boolean; from: Rect; to: Rect };
 
 	const gs = $derived(game.state);
 	const opponents = $derived(gs ? gs.players.slice(1) : []);
@@ -67,10 +72,60 @@
 			}
 		}
 	});
+
+	// --- Card flight: a ghost card arcs from a seat/stock to the pile ---
+	let flights = $state<Flight[]>([]);
+	function rectOf(sel: string, w = 104, h = 146): Rect | null {
+		const el = document.querySelector(sel);
+		if (!el) return null;
+		const r = el.getBoundingClientRect();
+		if (r.width === 0 && r.height === 0) return null;
+		return { x: r.left + r.width / 2 - w / 2, y: r.top + r.height / 2 - h / 2, w, h };
+	}
+	function endFlight(id: number) {
+		flights = flights.filter((f) => f.id !== id);
+	}
+
+	let seenPlay = 0;
+	$effect(() => {
+		const lp = game.lastPlay;
+		if (!lp || lp.id === seenPlay) return;
+		seenPlay = lp.id;
+		requestAnimationFrame(() => {
+			const to = rectOf('.discard .top-wrap');
+			const from = lp.seat === 0 ? rectOf('.you-area') : rectOf(`[data-seat="${lp.seat}"]`);
+			if (from && to) flights = [...flights, { id: lp.id, card: lp.card, from, to }];
+		});
+	});
+
+	let seenDraw = 0;
+	$effect(() => {
+		const ld = game.lastDraw;
+		if (!ld || ld.id === seenDraw) return;
+		seenDraw = ld.id;
+		requestAnimationFrame(() => {
+			const from = rectOf('.stock .stock-btn');
+			const to = ld.seat === 0 ? rectOf('.you-area') : rectOf(`[data-seat="${ld.seat}"]`);
+			if (from && to) flights = [...flights, { id: ld.id, faceDown: true, from, to }];
+		});
+	});
+
+	// Deal-in cascade when a new game starts.
+	let dealing = $state(false);
+	let lastDeal = 0;
+	$effect(() => {
+		if (game.dealSeq !== lastDeal) {
+			lastDeal = game.dealSeq;
+			if (game.dealSeq > 0) {
+				dealing = true;
+				setTimeout(() => (dealing = false), 1000);
+			}
+		}
+	});
 </script>
 
 {#if gs}
-	<div class="board" class:shaking>
+	<div class="board" class:shaking class:dealing>
 		<header class="topbar">
 			<button class="ghost" onclick={() => game.toMenu()}>← Leave</button>
 			<div class="mode-chip">
@@ -98,6 +153,7 @@
 			{#each opponents as opp, i (opp.id)}
 				<OpponentSeat
 					player={opp}
+					seatIndex={i + 1}
 					active={gs.currentPlayerIndex === i + 1 && gs.phase === 'playing'}
 					thinking={game.busy && game.thinkingName === opp.name}
 				/>
@@ -118,6 +174,13 @@
 			</div>
 
 			<div class="pile discard">
+				{#if game.pendingPick > 0}
+					{#key game.pendingPick}
+						<div class="stack-badge" in:scale={{ start: 1.7, duration: 240, easing: backOut }}>
+							+{game.pendingPick}
+						</div>
+					{/key}
+				{/if}
 				{#if topAsCard}
 					<div class="top-wrap">
 						{#key gs.discardPile.length}
@@ -173,8 +236,10 @@
 		<ShapePicker onpick={(s) => game.chooseShape(s)} oncancel={() => game.cancelWhot()} />
 	{/if}
 
+	<FlightLayer {flights} ondone={endFlight} />
 	<Announce data={game.announce} />
 	<Confetti trigger={game.winBurst} />
+	<TeeNobleIntro show={game.teeIntro} />
 {/if}
 
 <style>
@@ -244,6 +309,41 @@
 	.slam {
 		display: inline-block;
 	}
+
+	/* Deal-in cascade — pierces child scopes to reach hand + opponent cards. */
+	.board.dealing :global(.slot),
+	.board.dealing :global(.fslot) {
+		animation: dealIn 0.5s cubic-bezier(0.2, 1.2, 0.4, 1) both;
+		animation-delay: calc(var(--i, 0) * 55ms);
+	}
+	@keyframes dealIn {
+		from {
+			transform: translateY(46px) scale(0.6);
+			opacity: 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.board.dealing :global(.slot),
+		.board.dealing :global(.fslot) {
+			animation: none;
+		}
+	}
+
+	.stack-badge {
+		position: absolute;
+		top: -14px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 4;
+		background: linear-gradient(135deg, #ff5470, #c62a48);
+		color: #fff;
+		font-weight: 900;
+		font-size: 1.1rem;
+		padding: 0.15rem 0.7rem;
+		border-radius: 999px;
+		box-shadow: 0 4px 14px rgba(198, 42, 72, 0.5);
+		white-space: nowrap;
+	}
 	.mode-chip {
 		display: flex;
 		gap: 0.4rem;
@@ -290,6 +390,9 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 0.5rem;
+	}
+	.pile.discard {
+		position: relative;
 	}
 	.pile-label {
 		font-size: 0.78rem;

@@ -107,11 +107,16 @@ export class GameController {
 	announce = $state<AnnounceData | null>(null);
 	shakeId = $state(0);
 	winBurst = $state(0);
+	dealSeq = $state(0);
+	teeIntro = $state(false);
+	lastPlay = $state<{ id: number; seat: number; card: Card } | null>(null);
+	lastDraw = $state<{ id: number; seat: number } | null>(null);
 
 	#logId = 0;
 	#annId = 0;
 	#annTimer: ReturnType<typeof setTimeout> | null = null;
 	#handSizes: number[] = [];
+	#flightId = 0;
 
 	// --- Derived helpers ---
 
@@ -195,6 +200,18 @@ export class GameController {
 		const nextIsHuman = nextIdx === HUMAN;
 		const nextName = players[nextIdx]?.name ?? 'next';
 
+		// Signal the flight layer which card left which seat for the pile.
+		const playedCard: Card = action.kind === 'whot' ? { kind: 'whot', value: 20 } : action.card;
+		this.#flightId += 1;
+		this.lastPlay = { id: this.#flightId, seat: byIndex, card: playedCard };
+
+		// Stacking (stack mode): rising counter blip as the penalty climbs.
+		const stacking =
+			s.mode === 'stack' &&
+			s.pendingEffect?.kind === 'pick' &&
+			action.kind === 'suit' &&
+			(action.card.value === 2 || action.card.value === 5);
+
 		if (action.kind === 'whot') {
 			this.#say('WHOT!', 'wild', `called ${SHAPE_LABELS[action.calledShape]}`);
 			sound.play('whot');
@@ -208,15 +225,25 @@ export class GameController {
 				sound.play('holdon');
 				break;
 			case 'pick_two':
-				this.#say('PICK TWO', nextIsHuman && !byHuman ? 'bad' : 'good', `→ ${nextName}`);
-				if (nextIsHuman && !byHuman) {
+				this.#say(
+					stacking ? `STACK +${this.pendingPick}` : 'PICK TWO',
+					nextIsHuman && !byHuman ? 'bad' : 'good',
+					`→ ${nextName}`
+				);
+				if (stacking) sound.playStack(this.pendingPick);
+				else if (nextIsHuman && !byHuman) {
 					sound.play('youhit');
 					this.#shake();
 				} else sound.play('pick2');
 				break;
 			case 'pick_three':
-				this.#say('PICK THREE', nextIsHuman && !byHuman ? 'bad' : 'good', `→ ${nextName}`);
-				if (nextIsHuman && !byHuman) {
+				this.#say(
+					stacking ? `STACK +${this.pendingPick}` : 'PICK THREE',
+					nextIsHuman && !byHuman ? 'bad' : 'good',
+					`→ ${nextName}`
+				);
+				if (stacking) sound.playStack(this.pendingPick);
+				else if (nextIsHuman && !byHuman) {
 					sound.play('youhit');
 					this.#shake();
 				} else sound.play('pick3');
@@ -290,10 +317,15 @@ export class GameController {
 		this.state = createGame(players, this.config.mode);
 		this.#handSizes = this.state.players.map((p) => p.hand.length);
 		this.announce = null;
+		this.lastPlay = null;
+		this.lastDraw = null;
+		this.dealSeq += 1;
 		this.screen = 'playing';
+		sound.playDeal(Math.min(this.state.players.length * 2, 8));
 		if (kind === 'tee') {
 			this.#pushLog('system', 'Tee-Noble takes a seat across the table. No mercy.');
-			this.#say('TEE-NOBLE', 'boss', 'no mercy');
+			this.teeIntro = true;
+			setTimeout(() => (this.teeIntro = false), 1900);
 		} else {
 			const diff = DIFFICULTY_LABELS[this.config.difficulty];
 			this.#pushLog('system', `New game — ${this.config.mode} mode vs ${diff}. You start.`);
@@ -343,6 +375,8 @@ export class GameController {
 		}
 		const after = this.state.players[HUMAN]?.hand.length ?? 0;
 		const drew = after - before;
+		this.#flightId += 1;
+		this.lastDraw = { id: this.#flightId, seat: HUMAN };
 		if (pick > 0) {
 			this.#pushLog('you', `You went to market and picked ${drew} card${drew === 1 ? '' : 's'}.`);
 			sound.play('youhit');
@@ -427,6 +461,8 @@ export class GameController {
 							? `${player.name} picked ${drew} card${drew === 1 ? '' : 's'}.`
 							: `${player.name} went to market.`
 					);
+					this.#flightId += 1;
+					this.lastDraw = { id: this.#flightId, seat: idx };
 					sound.play('draw');
 				} else if (move.kind === 'suit') {
 					this.state = playCard(s, idx, move);

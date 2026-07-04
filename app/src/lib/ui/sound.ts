@@ -189,3 +189,26 @@ export function play(name: SoundName): void {
 		// audio is a nice-to-have; never let it break gameplay
 	}
 }
+
+/** Rising "counter" blip — pitch climbs with the accumulated stack total. */
+export function playStack(total: number): void {
+	if (muted) return;
+	const base = 260 + Math.min(total, 16) * 45;
+	try {
+		tone(base, 0.13, { type: 'square', peak: 0.24, glideTo: base * 1.5 });
+	} catch {
+		/* ignore */
+	}
+}
+
+/** A short riffle of ticks for the opening deal. */
+export function playDeal(n = 6): void {
+	if (muted) return;
+	for (let i = 0; i < n; i++) {
+		try {
+			noise(0.05, { peak: 0.12, type: 'highpass', freq: 1300, at: i * 0.07 });
+		} catch {
+			/* ignore */
+		}
+	}
+}

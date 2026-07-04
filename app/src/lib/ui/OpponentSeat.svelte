@@ -2,15 +2,19 @@
 	import type { Player } from '$lib/game/types.js';
 	import Card from './Card.svelte';
 
-	let { player, active, thinking }: { player: Player; active: boolean; thinking: boolean } =
-		$props();
+	let {
+		player,
+		active,
+		thinking,
+		seatIndex
+	}: { player: Player; active: boolean; thinking: boolean; seatIndex: number } = $props();
 
 	const count = $derived(player.hand.length);
 	const fan = $derived(Math.min(count, 6));
 	const isTee = $derived(player.kind === 'tee-noble');
 </script>
 
-<div class="seat" class:active class:tee={isTee}>
+<div class="seat" class:active class:tee={isTee} data-seat={seatIndex}>
 	<div class="fan" style:--n={fan}>
 		{#each Array.from({ length: fan }, (_, idx) => idx) as i (i)}
 			<div class="fslot" style:--i={i}>
