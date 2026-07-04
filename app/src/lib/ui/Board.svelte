@@ -31,7 +31,8 @@
 	const topKey = $derived(view ? JSON.stringify(view.discard_top) : '');
 
 	// You may always go to market on your turn (voluntary draw), pending pick or not.
-	const drawEnabled = $derived(game.isMyTurn);
+	// Gated on a live socket (game.canAct) so a disconnect can't queue plays.
+	const drawEnabled = $derived(game.canAct);
 
 	const status = $derived.by(() => {
 		if (!view) return '';
@@ -144,8 +145,14 @@
 	});
 </script>
 
+{#if game.disconnected}
+	<div class="reconnect-banner" role="status">
+		<span class="spinner-dot"></span> Reconnecting…
+	</div>
+{/if}
+
 {#if view}
-	<div class="board" class:shaking class:dealing>
+	<div class="board" class:shaking class:dealing class:offline={game.disconnected}>
 		<header class="topbar">
 			<button class="ghost" onclick={() => game.toMenu()}>← Leave</button>
 			<div class="mode-chip">
@@ -234,7 +241,7 @@
 					{game.pendingPick > 0 ? `Pick ${game.pendingPick}` : 'Go to market'}
 				</button>
 			</div>
-			<Hand cards={game.myHand} {canPlay} enabled={game.isMyTurn} {onplay} />
+			<Hand cards={game.myHand} {canPlay} enabled={game.canAct} {onplay} />
 		</section>
 
 		{#if showLog}
@@ -268,6 +275,43 @@
 		max-width: 1000px;
 		margin: 0 auto;
 		padding: 0.75rem 1rem 1rem;
+		/* Never let the table push the page wide. */
+		overflow-x: hidden;
+	}
+	/* When the socket drops, dim the board. Play/draw are already disabled via
+	   game.canAct; "Leave" stays clickable. */
+	.board.offline {
+		opacity: 0.8;
+	}
+	.reconnect-banner {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 100;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.5rem;
+		background: rgba(198, 42, 72, 0.95);
+		color: #fff;
+		font-size: 0.85rem;
+		font-weight: 700;
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+	}
+	.spinner-dot {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		border: 2px solid rgba(255, 255, 255, 0.4);
+		border-top-color: #fff;
+		animation: spin 0.7s linear infinite;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 	.board.shaking {
 		animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);

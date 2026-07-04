@@ -80,7 +80,9 @@ pub enum GamePhase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PendingEffect {
-    Pick { total: u32 },
+    // `card` is the number that started the penalty (2 or 5). Countering is
+    // number-locked: a Pick started by a 2 can only be answered with 2s.
+    Pick { total: u32, card: u8 },
     Skip,
 }
 

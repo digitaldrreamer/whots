@@ -55,20 +55,26 @@ fn compute_pending(
     match effect {
         None => current,
         Some(ActionEffect::PickTwo) => {
-            let base = if let Some(PendingEffect::Pick { total }) = current {
-                total
-            } else {
-                0
+            // Number-locked: only piles onto an existing 2-chain (can_play blocks
+            // playing a 2 onto a 5-penalty in the first place).
+            let base = match current {
+                Some(PendingEffect::Pick { total, card: 2 }) => total,
+                _ => 0,
             };
-            Some(PendingEffect::Pick { total: base + 2 })
+            Some(PendingEffect::Pick {
+                total: base + 2,
+                card: 2,
+            })
         }
         Some(ActionEffect::PickThree) => {
-            let base = if let Some(PendingEffect::Pick { total }) = current {
-                total
-            } else {
-                0
+            let base = match current {
+                Some(PendingEffect::Pick { total, card: 5 }) => total,
+                _ => 0,
             };
-            Some(PendingEffect::Pick { total: base + 3 })
+            Some(PendingEffect::Pick {
+                total: base + 3,
+                card: 5,
+            })
         }
         // Hold On and General Market are pure "play again" — no pending effect
         // carried into the follow-up turn.
@@ -248,7 +254,7 @@ fn apply_draw(state: &mut GameState, seat_index: usize) -> Result<(), GameError>
     }
 
     // Pending pick — player couldn't counter; draw the full accumulated total
-    if let Some(PendingEffect::Pick { total }) = state.pending_effect.clone() {
+    if let Some(PendingEffect::Pick { total, .. }) = state.pending_effect.clone() {
         let count = total as usize;
         state.pending_effect = None;
         reshuffle_discard(state);

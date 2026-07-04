@@ -23,7 +23,7 @@ export type Difficulty =
 
 export type GamePhase = 'playing' | 'finished';
 
-export type PendingEffect = { kind: 'pick'; total: number } | { kind: 'skip' };
+export type PendingEffect = { kind: 'pick'; total: number; card: number } | { kind: 'skip' };
 
 export type SeatKind =
 	| { kind: 'human'; user_id: string }

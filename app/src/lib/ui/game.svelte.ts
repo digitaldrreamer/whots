@@ -140,6 +140,17 @@ export class GameController {
 		return !this.isMyTurn;
 	}
 
+	/** True only when it's your turn AND the socket is live — the UI gates all
+	 * play/draw input on this so clicks during a disconnect can't queue up and
+	 * replay on reconnect. */
+	get canAct(): boolean {
+		return this.isMyTurn && this.connection === 'open';
+	}
+
+	get disconnected(): boolean {
+		return this.screen === 'playing' && this.connection !== 'open';
+	}
+
 	get topCard(): TopCard | null {
 		return this.view?.discard_top ?? null;
 	}
@@ -459,19 +470,20 @@ export class GameController {
 	// ── Human actions ───────────────────────────────────────────────────────────────
 
 	playSuit(card: Card): void {
-		if (!this.isMyTurn || card.kind !== 'suit') return;
+		if (!this.canAct || card.kind !== 'suit') return;
 		if (!this.canPlayCard(card)) return;
 		this.#socket?.send({ type: 'play_card', action: { kind: 'suit', shape: card.shape, value: card.value } });
 	}
 
 	beginWhot(): void {
-		if (!this.isMyTurn) return;
+		if (!this.canAct) return;
 		if (!this.myHand.some((c) => c.kind === 'whot')) return;
 		if (!this.canPlayCard({ kind: 'whot' })) return;
 		this.awaitingShape = true;
 	}
 
 	chooseShape(shape: Shape): void {
+		if (this.connection !== 'open') return;
 		this.awaitingShape = false;
 		this.#socket?.send({ type: 'play_card', action: { kind: 'whot', called_shape: shape } });
 	}
@@ -481,7 +493,7 @@ export class GameController {
 	}
 
 	draw(): void {
-		if (!this.isMyTurn) return;
+		if (!this.canAct) return;
 		this.#socket?.send({ type: 'draw' });
 	}
 

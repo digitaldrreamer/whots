@@ -9,9 +9,10 @@ export function canPlay(
 	pending: PendingEffect | null,
 	mode: GameMode
 ): boolean {
-	// Stack mode with a pending pick: only 2s and 5s can counter.
-	if (pending?.kind === 'pick' && mode === 'stack') {
-		return card.kind === 'suit' && (card.value === 2 || card.value === 5);
+	// Under a pending penalty, countering is number-locked and stack-mode only
+	// (a 2-chain answered with 2s, a 5-chain with 5s). No-stack: must draw.
+	if (pending?.kind === 'pick') {
+		return mode === 'stack' && card.kind === 'suit' && card.value === pending.card;
 	}
 
 	// Whot is always playable outside a counter window.

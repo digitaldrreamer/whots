@@ -140,18 +140,24 @@
 
 	.viewport {
 		display: flex;
-		/* Headroom so the hover/select lift is never clipped once this
-		   becomes a scroll container in spread mode, and so the Spread
+		/* Headroom so the hover/select lift is never clipped, and so the Spread
 		   toggle sits above the cards. */
 		padding: 2.4rem 1rem 0.5rem;
 		min-height: 182px;
-		overflow: visible;
-		scroll-behavior: smooth;
-	}
-	.viewport.spread {
+		/* Always contain the hand horizontally — scroll it instead of pushing
+		   the page wide. overflow-y: clip keeps the vertical lift visible (it
+		   stays within the top padding). */
 		overflow-x: auto;
 		overflow-y: clip;
 		overscroll-behavior-x: contain;
+		scroll-behavior: smooth;
+	}
+	.viewport::-webkit-scrollbar {
+		height: 6px;
+	}
+	.viewport::-webkit-scrollbar-thumb {
+		background: rgba(255, 255, 255, 0.18);
+		border-radius: 999px;
 	}
 	.viewport.spread::-webkit-scrollbar {
 		height: 6px;

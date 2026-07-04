@@ -1,14 +1,12 @@
 use crate::game::types::{Card, GameMode, PendingEffect, TopCard};
 
 pub fn can_play(card: Card, top: TopCard, pending: &Option<PendingEffect>, mode: GameMode) -> bool {
-    // In stack mode with a pending pick, only 2s and 5s can counter
-    if let Some(PendingEffect::Pick { .. }) = pending {
-        if mode == GameMode::Stack {
-            return matches!(
-                card,
-                Card::Suit { value: 2, .. } | Card::Suit { value: 5, .. }
-            );
-        }
+    // Under a pending penalty, countering is number-locked: only the same
+    // number that started it (a 2-chain answered with 2s, a 5-chain with 5s),
+    // and only in stack mode. No-stack has no counter — the player must draw.
+    if let Some(PendingEffect::Pick { card: counter, .. }) = pending {
+        return mode == GameMode::Stack
+            && matches!(card, Card::Suit { value, .. } if value == *counter);
     }
 
     // Whot is always playable outside a counter window
