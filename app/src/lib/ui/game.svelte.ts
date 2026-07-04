@@ -40,12 +40,12 @@ export type OpponentView = {
 const OPPONENT_NAMES = ['Ada', 'Emeka', 'Ngozi', 'Bisi', 'Tunde'];
 
 export const DIFFICULTY_META: { id: Difficulty; label: string; blurb: string }[] = [
-	{ id: 'pikin', label: 'Pikin', blurb: 'Pure beginner. Plays at random.' },
-	{ id: 'smallz', label: 'Smallz', blurb: 'Learns to thin its hand.' },
-	{ id: 'isabi_small', label: 'iSabiSmall', blurb: 'Starts using action cards.' },
-	{ id: 'chief', label: 'Chief', blurb: 'Hunts the player with fewest cards.' },
-	{ id: 'egbon', label: 'Ẹgbọn Àdúgbò', blurb: 'Reads suits and calls Whot smartly.' },
-	{ id: 'jagaban', label: 'Jagaban', blurb: 'Anticipates and sets up plays. Ruthless.' }
+	{ id: 'pikin', label: 'Pikin', blurb: 'Complete beginner — plays cards at random with no plan.' },
+	{ id: 'smallz', label: 'Smallz', blurb: 'Still learning — mostly just tries to offload its hand.' },
+	{ id: 'isabi_small', label: 'iSabiSmall', blurb: 'Getting the hang of it — starts using action cards.' },
+	{ id: 'chief', label: 'Chief', blurb: 'Calculating — targets whoever is closest to winning.' },
+	{ id: 'egbon', label: 'Ẹgbọn Àdúgbò', blurb: 'Reads the suits and calls Whot deliberately.' },
+	{ id: 'jagaban', label: 'Jagaban', blurb: 'Anticipates your plays and sets traps. Ruthless.' }
 ];
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
