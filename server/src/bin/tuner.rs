@@ -442,8 +442,48 @@ fn main() {
 
     if args.verify {
         println!("── Verification run ────────────────────────────────────────\n");
-        let (score, _) = global_ranking_score(&params, args.games.max(1000));
+        let (score, matrix) = global_ranking_score(&params, args.games.max(1000));
         println!("  Ordering score: {:.1}%\n", score * 100.0);
+
+        let names: Vec<&str> = LADDER.iter().map(|&d| difficulty_name(d)).collect();
+        println!("  Win-rate matrix — row (higher) vs column (lower):");
+        print!("           ");
+        for n in &names {
+            print!("{:>10}", n);
+        }
+        println!();
+        for j in 0..LADDER.len() {
+            print!("  {:>9}", names[j]);
+            for i in 0..LADDER.len() {
+                if i == j {
+                    print!("{:>10}", "-");
+                } else if j > i {
+                    print!("{:>10.2}", matrix[j][i]);
+                } else {
+                    print!("{:>10}", ".");
+                }
+            }
+            println!();
+        }
+
+        println!("\n  Mis-ordered pairs (a higher level should win > 0.50 vs a lower one):");
+        let mut any = false;
+        for i in 0..LADDER.len() {
+            for j in (i + 1)..LADDER.len() {
+                if matrix[j][i] <= 0.5 {
+                    any = true;
+                    println!(
+                        "    ✗ {} wins only {:.0}% vs {}",
+                        names[j],
+                        matrix[j][i] * 100.0,
+                        names[i]
+                    );
+                }
+            }
+        }
+        if !any {
+            println!("    ✓ none — every higher level beats every lower one.");
+        }
         return;
     }
 
