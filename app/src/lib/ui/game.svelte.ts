@@ -1,4 +1,4 @@
-import { GameSocket, type SocketStatus } from '$lib/api/socket';
+import { GameSocket, type SocketFailure, type SocketStatus } from '$lib/api/socket';
 import { createGame } from '$lib/api/games';
 import { canPlay, sameCard } from '$lib/api/rules';
 import { session } from '$lib/stores/session.svelte';
@@ -48,7 +48,7 @@ export const DIFFICULTY_META: { id: Difficulty; label: string; blurb: string }[]
 	{ id: 'jagaban', label: 'Jagaban', blurb: 'Anticipates your plays and sets traps. Ruthless.' }
 ];
 
-const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 	pikin: 'Pikin',
 	smallz: 'Smallz',
 	isabi_small: 'iSabiSmall',
@@ -443,8 +443,7 @@ export class GameController {
 	}
 
 	#connect(gameId: string): void {
-		const token = session.accessToken;
-		if (!token) {
+		if (!session.accessToken) {
 			this.error = 'Not authenticated.';
 			this.screen = 'menu';
 			return;
@@ -453,11 +452,27 @@ export class GameController {
 		this.#prev = null;
 		this.#socket = new GameSocket({
 			gameId,
-			token,
+			// Read per attempt, never captured — see GameSocket.
+			token: () => session.accessToken,
+			refreshToken: () => session.refreshAccessToken(),
 			onEvent: (ev) => this.#onEvent(ev),
-			onStatus: (s) => this.#onStatus(s)
+			onStatus: (s) => this.#onStatus(s),
+			onFailure: (reason) => this.#onFailure(reason)
 		});
 		this.#socket.connect();
+	}
+
+	/** The socket gave up. Say why and get out of the table rather than spinning. */
+	#onFailure(reason: SocketFailure): void {
+		this.connection = 'error';
+		this.error =
+			reason === 'gone'
+				? 'This game has ended or expired.'
+				: reason === 'auth'
+					? 'Your session expired. Please sign in again.'
+					: "Couldn't reach the table. Check your connection and try again.";
+		this.#pushLog('system', this.error);
+		this.screen = 'menu';
 	}
 
 	#onStatus(s: SocketStatus): void {

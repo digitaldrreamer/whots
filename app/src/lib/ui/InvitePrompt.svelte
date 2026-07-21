@@ -1,6 +1,29 @@
 <script lang="ts">
 	import { lobby } from '$lib/stores/lobby.svelte';
+	import { timeAgo } from './time';
 </script>
+
+{#if lobby.existingGame}
+	<div class="scrim">
+		<div class="card">
+			<div class="emoji">♻️</div>
+			<span class="kicker">Already playing</span>
+			<h2>You have a game with {lobby.existingGame.opponent_name}</h2>
+			<p class="sub">Started {timeAgo(lobby.existingGame.started_at)}</p>
+			<div class="btns">
+				<button
+					class="accept"
+					onclick={() => {
+						const g = lobby.existingGame;
+						if (g) lobby.resumeGame(g.game_id);
+					}}>Resume that game</button
+				>
+				<button class="decline" onclick={() => lobby.inviteAnyway()}>Start another anyway</button>
+				<button class="quiet" onclick={() => lobby.dismissExistingGame()}>Cancel</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#if lobby.pendingInvite}
 	<div class="scrim">
@@ -86,6 +109,11 @@
 		font-size: 1.35rem;
 		color: #fff;
 	}
+	.sub {
+		margin: 0.45rem 0 0;
+		font-size: 0.88rem;
+		color: rgba(255, 255, 255, 0.6);
+	}
 	.btns {
 		display: flex;
 		flex-direction: column;
@@ -107,6 +135,13 @@
 	.decline {
 		background: rgba(255, 255, 255, 0.08);
 		color: rgba(255, 255, 255, 0.85);
+	}
+	.quiet {
+		background: none;
+		color: rgba(255, 255, 255, 0.45);
+		font-weight: 600;
+		font-size: 0.88rem;
+		padding: 0.35rem;
 	}
 	.toast {
 		position: fixed;

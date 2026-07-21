@@ -52,25 +52,17 @@ async fn get_by_username_not_found(pool: PgPool) {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+/// Username search was removed on purpose — friend discovery is invite-link only,
+/// so there is no endpoint that enumerates users by partial name. Guards against
+/// it being reintroduced: `/users/search` must not behave like a search, it just
+/// falls through to the exact-username lookup and finds nothing.
 #[sqlx::test]
-async fn search_users(pool: PgPool) {
+async fn user_search_is_not_available(pool: PgPool) {
     let app = make_app(pool);
     let (token, _) = register_user(&app, "searchme", "Password1!").await;
 
-    let (status, body) = req(
-        &app,
-        "GET",
-        "/api/users/search?q=search",
-        None,
-        Some(&token),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|u| u["username"] == "searchme"));
+    let (status, _) = req(&app, "GET", "/api/users/search?q=search", None, Some(&token)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[sqlx::test]

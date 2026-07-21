@@ -1,8 +1,15 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use axum::{
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
+        ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
     response::IntoResponse,
@@ -40,7 +47,26 @@ pub struct HumanMove {
     pub respond: oneshot::Sender<Result<(), String>>,
 }
 
-pub type PlayerTxMap = DashMap<Uuid, mpsc::UnboundedSender<Arc<ServerEvent>>>;
+/// One live socket for one user. The `conn_id` distinguishes concurrent sockets
+/// for the same user: reconnects routinely overlap the socket they replace (the
+/// server only notices a dead peer a heartbeat later), and without an identity
+/// check the *old* socket's cleanup would remove the *new* socket's map entry,
+/// dropping its sender and killing it too — an eviction cascade that closes both
+/// and leaves the client reconnecting forever.
+pub struct ConnEntry {
+    conn_id: u64,
+    tx: mpsc::UnboundedSender<Arc<ServerEvent>>,
+}
+
+pub type PlayerTxMap = DashMap<Uuid, ConnEntry>;
+
+/// Monotonic source of `ConnEntry::conn_id`.
+static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Close code for "this game no longer exists" (finished, or reaped as
+/// abandoned). Distinct from a transient drop so the client stops retrying
+/// instead of hammering a game that will never come back.
+const CLOSE_GAME_GONE: u16 = 4404;
 
 pub struct RoomHandle {
     pub move_tx: mpsc::Sender<HumanMove>,
@@ -280,7 +306,8 @@ pub async fn run_game_driver(
         if let Err(e) = game_store::save(&mut redis, &state).await {
             tracing::warn!(%game_id, "Redis save failed: {e}");
         }
-        touch_game(&db, game_id).await;
+        // Post-move: `current_seat_index` is now whoever must play next.
+        touch_game(&db, game_id, Some(state.current_seat_index as i32)).await;
 
         let game_over = state.phase == GamePhase::Finished;
         let winner_index = state.winner_index;
@@ -323,6 +350,7 @@ fn broadcast_views(state: &GameState, player_txs: &PlayerTxMap, spectator_txs: &
         let view = make_view(state, Some(*entry.key()));
         let _ = entry
             .value()
+            .tx
             .send(Arc::new(ServerEvent::GameState { state: view }));
     }
     if !spectator_txs.is_empty() {
@@ -330,22 +358,31 @@ fn broadcast_views(state: &GameState, player_txs: &PlayerTxMap, spectator_txs: &
             state: make_view(state, None),
         });
         for entry in spectator_txs.iter() {
-            let _ = entry.value().send(Arc::clone(&sv));
+            let _ = entry.value().tx.send(Arc::clone(&sv));
         }
     }
 }
 
 fn broadcast_raw(map: &PlayerTxMap, ev: Arc<ServerEvent>) {
     for entry in map.iter() {
-        let _ = entry.value().send(Arc::clone(&ev));
+        let _ = entry.value().tx.send(Arc::clone(&ev));
     }
 }
 
-async fn touch_game(db: &sqlx::PgPool, game_id: Uuid) {
-    if let Err(e) = sqlx::query("UPDATE games SET last_activity_at = NOW() WHERE id = $1")
-        .bind(game_id)
-        .execute(db)
-        .await
+/// Mark the game as alive. `current_seat` is `Some` after a move (so the Games
+/// tab can show whose turn it is without loading the Redis snapshot) and `None`
+/// for presence pings, which must not disturb the recorded turn.
+async fn touch_game(db: &sqlx::PgPool, game_id: Uuid, current_seat: Option<i32>) {
+    if let Err(e) = sqlx::query(
+        "UPDATE games
+            SET last_activity_at = NOW(),
+                current_seat_index = COALESCE($2, current_seat_index)
+          WHERE id = $1",
+    )
+    .bind(game_id)
+    .bind(current_seat)
+    .execute(db)
+    .await
     {
         tracing::warn!(%game_id, "touch_game failed: {e}");
     }
@@ -399,12 +436,27 @@ pub async fn game_socket(
 }
 
 async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app: AppState) {
-    tracing::info!(%user_id, %game_id, "WebSocket connected");
-
     let access = match ensure_room(game_id, &app).await {
-        Ok(a) => a,
+        Ok(Some(a)) => a,
+        // Gone for good (finished, or reaped as abandoned). Say so with a dedicated
+        // close code so the client stops retrying — otherwise every reconnect
+        // re-runs this path forever.
+        Ok(None) => {
+            let json = "{\"type\":\"error\",\"message\":\"game not found\"}".to_string();
+            let _ = socket.send(Message::Text(json)).await;
+            let _ = socket
+                .send(Message::Close(Some(CloseFrame {
+                    code: CLOSE_GAME_GONE,
+                    reason: "game not found".into(),
+                })))
+                .await;
+            return;
+        }
+        // Infrastructure trouble (Redis unreachable) — the game may well still
+        // exist, so close plainly and let the client's backoff retry.
         Err(e) => {
-            let json = format!("{{\"type\":\"error\",\"message\":\"{e}\"}}");
+            tracing::warn!(%user_id, %game_id, "ensure_room failed: {e}");
+            let json = "{\"type\":\"error\",\"message\":\"temporarily unavailable\"}".to_string();
             let _ = socket.send(Message::Text(json)).await;
             return;
         }
@@ -412,12 +464,23 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
 
     let is_participant = access.human_seat_ids.contains(&user_id);
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<Arc<ServerEvent>>();
+    let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+    let entry = ConnEntry { conn_id, tx: ev_tx };
 
+    // Inserting evicts any previous socket for this user: its sender drops, so its
+    // `ev_rx.recv()` yields None and it shuts down. That is intended — the map
+    // holds one socket per user. Cleanup below is what must not be indiscriminate.
     if is_participant {
-        access.player_txs.insert(user_id, ev_tx);
+        access.player_txs.insert(user_id, entry);
     } else {
-        access.spectator_txs.insert(user_id, ev_tx);
+        access.spectator_txs.insert(user_id, entry);
     }
+    tracing::info!(%user_id, %game_id, conn_id, "WebSocket connected");
+
+    // Presence is activity. The abandoned-game reaper keys off `last_activity_at`,
+    // which otherwise only advances when a move lands — so a table where everyone
+    // is present but thinking gets reaped out from under them after 30 minutes.
+    touch_game(&app.db, game_id, None).await;
 
     // Send personalised (or spectator) snapshot immediately
     if let Ok(mut redis) = app.redis.get_multiplexed_tokio_connection().await {
@@ -433,11 +496,21 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         tokio::time::Instant::now() + Duration::from_secs(30),
         Duration::from_secs(30),
     );
+    // Far coarser than the heartbeat: this only has to beat the reaper's 30-minute
+    // idle window, and it writes to Postgres.
+    let mut presence = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(300),
+        Duration::from_secs(300),
+    );
 
     loop {
         tokio::select! {
             _ = heartbeat.tick() => {
                 if socket.send(Message::Ping(vec![])).await.is_err() { break; }
+            }
+
+            _ = presence.tick() => {
+                touch_game(&app.db, game_id, None).await;
             }
 
             event = ev_rx.recv() => {
@@ -471,12 +544,17 @@ async fn handle_socket(mut socket: WebSocket, user_id: Uuid, game_id: Uuid, app:
         }
     }
 
-    if is_participant {
-        access.player_txs.remove(&user_id);
+    // Only retract our own registration. If a newer socket for this user has
+    // already taken the slot, leave it alone — removing it would drop its sender
+    // and kill a healthy connection.
+    let map = if is_participant {
+        &access.player_txs
     } else {
-        access.spectator_txs.remove(&user_id);
-    }
-    tracing::info!(%user_id, %game_id, "WebSocket disconnected");
+        &access.spectator_txs
+    };
+    map.remove_if(&user_id, |_, e| e.conn_id == conn_id);
+
+    tracing::info!(%user_id, %game_id, conn_id, "WebSocket disconnected");
 }
 
 async fn on_client_message(
@@ -544,8 +622,8 @@ async fn relay_rtc(
     if !are_friends(db, from, to).await {
         return;
     }
-    if let Some(tx) = player_txs.get(&to) {
-        let _ = tx.send(Arc::new(ServerEvent::RtcSignal {
+    if let Some(entry) = player_txs.get(&to) {
+        let _ = entry.tx.send(Arc::new(ServerEvent::RtcSignal {
             from,
             kind: kind.into(),
             payload,
@@ -602,20 +680,23 @@ struct RoomAccess {
     human_seat_ids: Arc<HashSet<Uuid>>,
 }
 
-async fn ensure_room(game_id: Uuid, app: &AppState) -> anyhow::Result<RoomAccess> {
+/// `Ok(None)` means the game genuinely no longer exists; `Err` means we couldn't
+/// find out (Redis down). Callers must treat those differently — one is terminal
+/// for the client, the other is worth retrying.
+async fn ensure_room(game_id: Uuid, app: &AppState) -> anyhow::Result<Option<RoomAccess>> {
     if let Some(h) = app.rooms.get(&game_id) {
-        return Ok(RoomAccess {
+        return Ok(Some(RoomAccess {
             move_tx: h.move_tx.clone(),
             player_txs: Arc::clone(&h.player_txs),
             spectator_txs: Arc::clone(&h.spectator_txs),
             human_seat_ids: Arc::clone(&h.human_seat_ids),
-        });
+        }));
     }
 
     let mut redis = app.redis.get_multiplexed_tokio_connection().await?;
-    let game_state = game_store::load(&mut redis, game_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("game not found"))?;
+    let Some(game_state) = game_store::load(&mut redis, game_id).await? else {
+        return Ok(None);
+    };
 
     let human_seat_ids: HashSet<Uuid> = game_state
         .seats
@@ -652,10 +733,10 @@ async fn ensure_room(game_id: Uuid, app: &AppState) -> anyhow::Result<RoomAccess
         Arc::clone(&app.rooms),
     ));
 
-    Ok(RoomAccess {
+    Ok(Some(RoomAccess {
         move_tx,
         player_txs,
         spectator_txs,
         human_seat_ids,
-    })
+    }))
 }

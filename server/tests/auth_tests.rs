@@ -32,11 +32,14 @@ async fn guest_creates_account(pool: PgPool) {
     assert_eq!(body["user"]["is_guest"], true);
 }
 
+/// A taken guest name must not block play — it auto-suffixes instead. Rejecting
+/// the duplicate used to lock guests out entirely: they'd make a guest, log out,
+/// and be unable to return, because the name was taken and guests can't log in.
 #[sqlx::test]
-async fn guest_duplicate_username_conflicts(pool: PgPool) {
+async fn guest_duplicate_username_suffixes(pool: PgPool) {
     let app = make_app(pool);
     guest_token(&app, "dupuser").await;
-    let (status, _) = req(
+    let (status, body) = req(
         &app,
         "POST",
         "/api/auth/guest",
@@ -44,7 +47,17 @@ async fn guest_duplicate_username_conflicts(pool: PgPool) {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT);
+
+    assert_eq!(status, StatusCode::CREATED);
+    let username = body["user"]["username"].as_str().unwrap();
+    assert_ne!(username, "dupuser", "second guest must get a distinct username");
+    assert!(
+        username.starts_with("dupuser-") && username["dupuser-".len()..].parse::<u32>().is_ok(),
+        "expected a `dupuser-<number>` suffix, got {username:?}"
+    );
+    // The name they typed survives as the display name.
+    assert_eq!(body["user"]["display_name"], "dupuser");
+    assert_eq!(body["user"]["is_guest"], true);
 }
 
 #[sqlx::test]

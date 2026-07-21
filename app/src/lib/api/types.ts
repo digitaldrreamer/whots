@@ -63,10 +63,45 @@ export type SeatSpec =
 export interface CreateGameRequest {
 	mode: GameMode;
 	seats: SeatSpec[];
+	/** Start another game with someone you already have a running game against. */
+	force?: boolean;
 }
 
 export interface CreateGameResponse {
 	game_id: string;
+}
+
+/** 409 detail from POST /games when a game with this opponent is already running. */
+export interface ExistingGameConflict {
+	reason: 'existing_game';
+	game_id: string;
+	opponent_id: string;
+	opponent_name: string;
+	started_at: string;
+}
+
+export interface GameOpponent {
+	seat_index: number;
+	is_ai: boolean;
+	ai_difficulty: Difficulty | null;
+	username: string | null;
+	display_name: string | null;
+	avatar_url: string | null;
+}
+
+export interface GameSummary {
+	id: string;
+	mode: GameMode;
+	status: 'waiting' | 'playing' | 'finished' | 'abandoned';
+	created_at: string;
+	last_activity_at: string;
+	finished_at: string | null;
+	seat_index: number;
+	is_winner: boolean;
+	player_count: number;
+	/** Whose turn it is; null once the game is no longer running. */
+	current_seat_index: number | null;
+	opponents: GameOpponent[];
 }
 
 // ── WebSocket wire messages ───────────────────────────────────────────────────────

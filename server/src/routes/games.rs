@@ -84,6 +84,47 @@ pub enum SeatSpec {
 pub struct CreateGameRequest {
     pub mode: GameMode,
     pub seats: Vec<SeatSpec>,
+    /// Set after the user has been shown the game they already have with this
+    /// opponent and chose to start another one anyway.
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// An in-progress game the caller already shares with one of the people they're
+/// inviting. Returned as 409 detail so the UI can offer "Resume" alongside
+/// "Start another anyway".
+async fn existing_game_with(
+    db: &sqlx::PgPool,
+    caller: Uuid,
+    opponents: &[Uuid],
+) -> Result<Option<serde_json::Value>, AppError> {
+    for &opponent in opponents {
+        let row = sqlx::query_as::<_, (Uuid, DateTime<Utc>, String)>(
+            "SELECT g.id, g.created_at, u.display_name
+               FROM games g
+               JOIN users u ON u.id = $2
+              WHERE g.status = 'playing'
+                AND EXISTS (SELECT 1 FROM game_seats WHERE game_id = g.id AND user_id = $1)
+                AND EXISTS (SELECT 1 FROM game_seats WHERE game_id = g.id AND user_id = $2)
+              ORDER BY g.created_at DESC
+              LIMIT 1",
+        )
+        .bind(caller)
+        .bind(opponent)
+        .fetch_optional(db)
+        .await?;
+
+        if let Some((game_id, created_at, display_name)) = row {
+            return Ok(Some(serde_json::json!({
+                "reason": "existing_game",
+                "game_id": game_id,
+                "opponent_id": opponent,
+                "opponent_name": display_name,
+                "started_at": created_at,
+            })));
+        }
+    }
+    Ok(None)
 }
 
 #[derive(Serialize)]
@@ -143,6 +184,19 @@ pub async fn create(
         }
     }
 
+    // Don't silently deal a second table with someone you're already mid-game
+    // with — surface the existing one instead. `force` is the deliberate opt-in
+    // to start another anyway.
+    if !body.force {
+        let opponents: Vec<Uuid> = human_ids.iter().copied().filter(|&id| id != claims.sub).collect();
+        if let Some(detail) = existing_game_with(&app.db, claims.sub, &opponents).await? {
+            return Err(AppError::ConflictWith {
+                message: "you already have a game with this player".into(),
+                detail,
+            });
+        }
+    }
+
     let seats: Vec<Seat> = body
         .seats
         .iter()
@@ -199,13 +253,17 @@ pub async fn persist_new_game(
     let game_state = create_game(seats, mode);
     let game_id = game_state.id;
 
-    sqlx::query("INSERT INTO games (id, mode, status, created_by) VALUES ($1, $2, 'playing', $3)")
-        .bind(game_id)
-        .bind(mode.to_db_str())
-        .bind(created_by)
-        .execute(&app.db)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
+    sqlx::query(
+        "INSERT INTO games (id, mode, status, created_by, current_seat_index)
+         VALUES ($1, $2, 'playing', $3, $4)",
+    )
+    .bind(game_id)
+    .bind(mode.to_db_str())
+    .bind(created_by)
+    .bind(game_state.current_seat_index as i32)
+    .execute(&app.db)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
 
     // Seat order is preserved by create_game, so game_state.seats[idx] is seat idx.
     for (idx, seat) in game_state.seats.iter().enumerate() {

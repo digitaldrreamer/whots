@@ -3,13 +3,15 @@ import { game } from '$lib/ui/game.svelte';
 import { NotifySocket } from '$lib/api/notify-socket';
 import * as social from '$lib/api/social';
 import * as mm from '$lib/api/matchmaking';
-import { acceptGame, declineGame, createGame } from '$lib/api/games';
+import { acceptGame, declineGame, createGame, myGames, ExistingGameError } from '$lib/api/games';
 import * as rooms from '$lib/api/rooms';
 import { createInvite } from '$lib/api/invites';
 import type {
 	Difficulty,
+	ExistingGameConflict,
 	FriendRow,
 	GameMode,
+	GameSummary,
 	Notification,
 	PublicUser,
 	RoomView
@@ -27,15 +29,25 @@ class LobbyStore {
 	pendingRoomInvite = $state<{ roomId: string; from: string } | null>(null);
 	toast = $state<string | null>(null);
 	error = $state<string | null>(null);
+	// Games tab.
+	runningGames = $state<GameSummary[]>([]);
+	gamesLoading = $state(false);
+	/** Set when an invite hit an already-running game; drives the resume prompt. */
+	existingGame = $state<ExistingGameConflict | null>(null);
 
 	#notify: NotifySocket | null = null;
+	/** Re-issued verbatim with `force` if the user picks "Start another anyway". */
+	#blockedInvite: { friend: FriendRow; mode: GameMode } | null = null;
 
 	/** Open the notify socket + load social data (call once authed). */
 	async open(): Promise<void> {
-		const token = session.accessToken;
-		if (!token) return;
+		if (!session.accessToken) return;
 		this.#notify?.close();
-		this.#notify = new NotifySocket(token, (n) => this.#onNotification(n));
+		this.#notify = new NotifySocket(
+			() => session.accessToken,
+			() => session.refreshAccessToken(),
+			(n) => this.#onNotification(n)
+		);
 		this.#notify.connect();
 		await this.refresh();
 	}
@@ -147,23 +159,64 @@ class LobbyStore {
 		await this.refresh();
 	}
 
+	// ── Games tab ──────────────────────────────────────────────────────────────────
+	/** Load the games still in progress. Safe to call on every tab open. */
+	async loadRunningGames(): Promise<void> {
+		if (!session.accessToken) return;
+		this.gamesLoading = true;
+		try {
+			this.runningGames = await myGames('playing');
+		} catch {
+			/* transient — keep whatever we last showed */
+		} finally {
+			this.gamesLoading = false;
+		}
+	}
+
+	resumeGame(gameId: string): void {
+		this.existingGame = null;
+		game.joinExisting(gameId);
+	}
+
 	// ── Invites ────────────────────────────────────────────────────────────────────
-	async inviteFriend(friend: FriendRow, mode: GameMode): Promise<void> {
+	async inviteFriend(friend: FriendRow, mode: GameMode, force = false): Promise<void> {
 		if (!session.user) return;
 		this.error = null;
 		try {
 			const gameId = await createGame({
 				mode,
+				force,
 				seats: [
 					{ kind: 'human', user_id: session.user.id },
 					{ kind: 'human', user_id: friend.id }
 				]
 			});
+			this.existingGame = null;
+			this.#blockedInvite = null;
 			game.joinExisting(gameId);
 			this.#flash(`Invited ${friend.display_name}`);
 		} catch (e) {
+			// Not an error the user needs to fix — they already have this game.
+			// Show it and let them resume it or deliberately start another.
+			if (e instanceof ExistingGameError) {
+				this.existingGame = e.existing;
+				this.#blockedInvite = { friend, mode };
+				return;
+			}
 			this.error = e instanceof Error ? e.message : 'Could not create game.';
 		}
+	}
+
+	/** "Start another anyway" from the existing-game prompt. */
+	async inviteAnyway(): Promise<void> {
+		const pending = this.#blockedInvite;
+		if (!pending) return;
+		await this.inviteFriend(pending.friend, pending.mode, true);
+	}
+
+	dismissExistingGame(): void {
+		this.existingGame = null;
+		this.#blockedInvite = null;
 	}
 
 	async acceptInvite(): Promise<void> {
@@ -285,6 +338,9 @@ class LobbyStore {
 		this.pendingInvite = null;
 		this.room = null;
 		this.pendingRoomInvite = null;
+		this.runningGames = [];
+		this.existingGame = null;
+		this.#blockedInvite = null;
 	}
 }
 

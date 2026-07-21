@@ -146,9 +146,16 @@ pub async fn upload_contact_hashes(
 
 // ── GET /users/me/games ────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
-pub struct PageQuery {
-    pub page: Option<i64>,
+/// One of the other seats at a table — human or AI. `username`/`display_name`
+/// are null for AI seats, `ai_difficulty` is null for human ones.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GameOpponent {
+    pub seat_index: i32,
+    pub is_ai: bool,
+    pub ai_difficulty: Option<String>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -157,30 +164,66 @@ pub struct GameSummary {
     pub mode: String,
     pub status: String,
     pub created_at: DateTime<Utc>,
+    pub last_activity_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
     pub seat_index: i32,
     pub is_winner: bool,
     pub player_count: i64,
+    /// Whose turn it is, or null for a game that isn't running.
+    pub current_seat_index: Option<i32>,
+    pub opponents: sqlx::types::Json<Vec<GameOpponent>>,
+}
+
+#[derive(Deserialize)]
+pub struct GamesQuery {
+    pub page: Option<i64>,
+    /// Filter by lifecycle state — `?status=playing` backs the Games tab.
+    pub status: Option<String>,
 }
 
 pub async fn my_games(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
-    Query(pq): Query<PageQuery>,
+    Query(q): Query<GamesQuery>,
 ) -> Result<Json<Vec<GameSummary>>, AppError> {
-    let offset = pq.page.unwrap_or(0).max(0) * 20;
+    let offset = q.page.unwrap_or(0).max(0) * 20;
+
+    // Reject unknown values rather than silently returning everything — a typo'd
+    // filter should not look like "you have no running games".
+    if let Some(s) = &q.status {
+        if !["waiting", "playing", "finished", "abandoned"].contains(&s.as_str()) {
+            return Err(AppError::BadRequest("unknown status".into()));
+        }
+    }
+
     let games = sqlx::query_as::<_, GameSummary>(
         "SELECT
-             g.id, g.mode, g.status, g.created_at, g.finished_at,
+             g.id, g.mode, g.status, g.created_at, g.last_activity_at, g.finished_at,
+             g.current_seat_index,
              gs.seat_index, gs.is_winner,
-             (SELECT COUNT(*)::BIGINT FROM game_seats gs2 WHERE gs2.game_id = g.id) AS player_count
+             (SELECT COUNT(*)::BIGINT FROM game_seats gs2 WHERE gs2.game_id = g.id) AS player_count,
+             COALESCE((
+                 SELECT json_agg(json_build_object(
+                            'seat_index',    o.seat_index,
+                            'is_ai',         o.is_ai,
+                            'ai_difficulty', o.ai_difficulty,
+                            'username',      u.username,
+                            'display_name',  u.display_name,
+                            'avatar_url',    u.avatar_url
+                        ) ORDER BY o.seat_index)
+                   FROM game_seats o
+                   LEFT JOIN users u ON u.id = o.user_id
+                  WHERE o.game_id = g.id AND o.seat_index <> gs.seat_index
+             ), '[]'::json) AS opponents
          FROM game_seats gs
          JOIN games g ON g.id = gs.game_id
          WHERE gs.user_id = $1
-         ORDER BY g.created_at DESC
-         LIMIT 20 OFFSET $2",
+           AND ($2::text IS NULL OR g.status = $2)
+         ORDER BY g.last_activity_at DESC
+         LIMIT 20 OFFSET $3",
     )
     .bind(claims.sub)
+    .bind(&q.status)
     .bind(offset)
     .fetch_all(&state.db)
     .await?;

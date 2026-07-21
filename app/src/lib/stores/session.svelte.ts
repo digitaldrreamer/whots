@@ -131,6 +131,16 @@ class SessionStore {
 		this.#apply(data as Session);
 	}
 
+	/**
+	 * Mint a fresh access token from the refresh cookie. WebSockets need this
+	 * explicitly: they authenticate once at the handshake and can't retry with a
+	 * new token the way `apiFetch` does, so a socket that outlives the 15-minute
+	 * access token has to ask for a new one before reconnecting.
+	 */
+	refreshAccessToken(): Promise<boolean> {
+		return this.#refresh();
+	}
+
 	/** Single-flight refresh so concurrent 401s don't stampede the endpoint. */
 	#refresh(): Promise<boolean> {
 		if (this.#refreshing) return this.#refreshing;

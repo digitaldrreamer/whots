@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Difficulty, GameMode } from '$lib/api/types';
-	import { game, DIFFICULTY_META } from './game.svelte.js';
+	import type { Difficulty, GameMode, GameSummary } from '$lib/api/types';
+	import { timeAgo } from './time';
+	import { game, DIFFICULTY_META, DIFFICULTY_LABELS } from './game.svelte.js';
 	import { session } from '$lib/stores/session.svelte';
 	import { lobby } from '$lib/stores/lobby.svelte';
 	import { net } from '$lib/stores/net.svelte';
@@ -17,7 +18,7 @@
 		if (net.latency == null) net.measure(false);
 	});
 
-	type Section = 'play' | 'online' | 'friends' | 'profile';
+	type Section = 'play' | 'online' | 'games' | 'friends' | 'profile';
 
 	let section = $state<Section>('play');
 	let mode = $state<GameMode>('stack');
@@ -27,6 +28,28 @@
 	let copied = $state(false);
 
 	const authed = $derived(session.status === 'authed');
+
+	// Refresh on entry rather than polling — the list is only visible here, and a
+	// game's own WebSocket already keeps the table itself live.
+	$effect(() => {
+		if (section === 'games' && authed) void lobby.loadRunningGames();
+	});
+
+	/**
+	 * The other seats, in seat order — "Ada, Tee-Noble". AI seats carry no name in
+	 * the database (it lives in the Redis snapshot), only a difficulty, so their
+	 * label comes from that.
+	 */
+	function opponentLabel(g: GameSummary): string {
+		if (g.opponents.length === 0) return 'No opponents';
+		return g.opponents
+			.map((o) =>
+				o.is_ai
+					? (o.ai_difficulty && DIFFICULTY_LABELS[o.ai_difficulty]) || 'AI'
+					: (o.display_name ?? o.username ?? 'Player')
+			)
+			.join(', ');
+	}
 
 	async function copyLink() {
 		if (!lobby.inviteLink) return;
@@ -81,6 +104,7 @@
 	const NAV: { id: Section; icon: string; label: string }[] = [
 		{ id: 'play', icon: '🎴', label: 'Play' },
 		{ id: 'online', icon: '🌐', label: 'Online' },
+		{ id: 'games', icon: '⏳', label: 'Games' },
 		{ id: 'friends', icon: '👥', label: 'Friends' },
 		{ id: 'profile', icon: '👤', label: 'Profile' }
 	];
@@ -176,6 +200,41 @@
 						<button class="online room" onclick={() => lobby.createRoom(mode)}>Create room</button>
 						<span class="hint">Invite friends and add AI seats — up to 6 at the table.</span>
 					</div>
+				{/if}
+				{#if lobby.error}<span class="err">{lobby.error}</span>{/if}
+			</div>
+
+			<!-- ── Friends ── -->
+			<!-- ── Games in progress ── -->
+		{:else if section === 'games'}
+			<div class="panel">
+				{#if !authed}
+					<p class="signin-nudge">Sign in on <strong>Profile</strong> to see your games.</p>
+				{:else}
+					<div class="field">
+						<span class="label">In progress</span>
+						{#if lobby.runningGames.length === 0}
+							<p class="empty">
+								{lobby.gamesLoading ? 'Loading…' : 'No games running. Start one from Play or Friends.'}
+							</p>
+						{/if}
+						{#each lobby.runningGames as g (g.id)}
+							{@const yourTurn = g.current_seat_index === g.seat_index}
+							<div class="game-row">
+								<span class="who">
+									{opponentLabel(g)}
+									<small>
+										Started {timeAgo(g.created_at)} · {g.mode === 'stack' ? 'Stack' : 'No-stack'}
+									</small>
+								</span>
+								<div class="actions">
+									{#if yourTurn}<span class="turn">Your turn</span>{/if}
+									<button class="mini go" onclick={() => lobby.resumeGame(g.id)}>Resume</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+					<button class="online" onclick={() => lobby.loadRunningGames()}>Refresh</button>
 				{/if}
 				{#if lobby.error}<span class="err">{lobby.error}</span>{/if}
 			</div>
@@ -489,9 +548,31 @@
 		gap: 0.5rem;
 		padding: 0.15rem 0;
 	}
+	/* Like .person, but each row is a distinct game so it gets a divider. */
+	.game-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.55rem 0;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	}
+	.game-row:last-child {
+		border-bottom: none;
+	}
+	.turn {
+		font-size: 0.68rem;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--gold, #e8b84b);
+		align-self: center;
+		white-space: nowrap;
+	}
 	.actions {
 		display: flex;
 		gap: 0.4rem;
+		align-items: center;
 	}
 	.mini {
 		border: none;
