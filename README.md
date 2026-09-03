@@ -88,7 +88,7 @@ The deck consists of **54 cards** across **5 shapes (suits)** plus wild cards:
 ## Features
 
 - ⚡ **Real-Time Multiplayer**: Low-latency WebSocket room management with automated reconnection and state recovery.
-- 🤖 **Tiered AI Bot Ladder**: 6 distinct difficulties ranging from beginner bots to **Tee-Noble**, an unbeatable bot powered by Information Set Monte Carlo Tree Search (ISMCTS).
+- 🤖 **Tiered AI Bot Ladder**: Progressive difficulties ranging from beginner bots up to **Tee-Noble**, a formidable boss bot powered by Information Set Monte Carlo Tree Search (ISMCTS) — very much beatable, but engineered to play as close to optimally as possible against card luck.
 - 🔑 **Modern Passwordless Auth**: Native **WebAuthn (Passkeys)** support alongside traditional email/password and instant frictionless Guest Play.
 - 🎵 **Procedural Audio Engine**: Web Audio API sound synthesis for card draws, swooshes, slam animations, and victory fanfares (with full mute toggles).
 - 📱 **Adaptive UI**: Switch between compact overlapping hand fan and horizontal spread mode with smooth animations.
@@ -184,7 +184,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## AI Difficulty Ladder & Tuner
 
-The game includes an AI engine with 6 progressive tiers:
+The game includes an AI engine with 6 progressive ladder tiers plus the Tee-Noble boss challenge:
 
 1. **Pikin**: Pure random play — learning card matching.
 2. **Smallz**: Hand-thinning heuristic (sheds dominant suits).
@@ -192,7 +192,7 @@ The game includes an AI engine with 6 progressive tiers:
 4. **Chief**: Adds threat detection (blocks players with few cards).
 5. **Ẹgbọn Àdúgbò**: Adds card counting, Whot 20 conservation, and setup plays.
 6. **Jagaban**: Advanced anticipation and multi-turn planning.
-7. **Tee-Noble**: Information Set Monte Carlo Tree Search (ISMCTS).
+7. **Tee-Noble**: Boss encounter powered by Information Set Monte Carlo Tree Search (ISMCTS) — beatable, but the best play possible against card luck.
 
 To optimize difficulty parameters using coordinate descent, run the built-in Rust tuner:
 

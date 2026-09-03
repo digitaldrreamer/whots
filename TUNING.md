@@ -123,4 +123,4 @@ Expected output: `tee-noble ≥ jagaban > egbon > chief > isabi_small > smallz >
 | `chief` | + Threat-detection | Actively attacks opponents who are close to emptying their hand. |
 | `egbon` | + Card-probability, Whot-intelligence, Setup-plays | Estimates deck probability and conserves Whot 20 wild cards. |
 | `jagaban` | + Anticipation | Predicts opponent counter-plays and chains multi-turn card plays. |
-| `tee-noble` | Information Set MCTS (ISMCTS) | Monte Carlo simulation with near-flawless decision trees. |
+| `tee-noble` | Information Set MCTS (ISMCTS) | Monte Carlo simulation engineered to play as close to optimally as possible against card luck. |
