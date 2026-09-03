@@ -1,10 +1,9 @@
 import { env } from '$env/dynamic/private';
 import type { Cookies } from '@sveltejs/kit';
 
-// Origin of the Rust backend. In the Dokploy stack this is the internal service
-// URL (INTERNAL_API_URL=http://server:3001); in local dev it falls back to the
-// deployed API so `npm run dev` works against real data.
-export const BACKEND_ORIGIN = env.INTERNAL_API_URL ?? 'https://whots.drreamer.digital';
+// Origin of the Rust backend. In containerized setups this is configured via
+// INTERNAL_API_URL (e.g. http://server:3001); in local dev it defaults to localhost.
+export const BACKEND_ORIGIN = env.INTERNAL_API_URL ?? 'http://localhost:3001';
 
 // httpOnly cookie holding the rotating refresh token. Never exposed to the browser.
 export const REFRESH_COOKIE = 'wh_refresh';

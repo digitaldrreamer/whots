@@ -30,8 +30,20 @@ const MAX_SWEEPS: usize = 5000;
 const INITIAL_STEP: f64 = 0.15;
 const MIN_STEP: f64 = 0.005;
 const STEP_DECAY: f64 = 0.6;
-const CHECKPOINT_PATH: &str = "scripts/params/best.json";
 const MAX_TURNS: usize = 600;
+
+fn get_checkpoint_path() -> std::path::PathBuf {
+    if let Ok(env_path) = std::env::var("CHECKPOINT_PATH") {
+        return std::path::PathBuf::from(env_path);
+    }
+    if Path::new("scripts/params/best.json").exists() || Path::new("scripts/params").exists() {
+        std::path::PathBuf::from("scripts/params/best.json")
+    } else if Path::new("../scripts/params/best.json").exists() || Path::new("../scripts/params").exists() {
+        std::path::PathBuf::from("../scripts/params/best.json")
+    } else {
+        std::path::PathBuf::from("scripts/params/best.json")
+    }
+}
 
 // Ceiling test: ISMCTS tee-noble wins ~80.7% vs pikin at 200 sims.
 // Elo span 248 / 6 steps = 41 Elo/step → 1/(1+10^(-41/400)) = 55.9%.
@@ -367,11 +379,12 @@ fn quick_objective(
 }
 
 fn load_checkpoint() -> Option<HashMap<String, DifficultyParams>> {
-    if !Path::new(CHECKPOINT_PATH).exists() {
+    let path = get_checkpoint_path();
+    if !path.exists() {
         return None;
     }
 
-    if let Ok(json) = fs::read_to_string(CHECKPOINT_PATH) {
+    if let Ok(json) = fs::read_to_string(&path) {
         if let Ok(checkpoint) = serde_json::from_str::<Checkpoint>(&json) {
             println!(
                 "  Resumed from checkpoint (sweeps: {}, saved: {})",
@@ -386,7 +399,10 @@ fn load_checkpoint() -> Option<HashMap<String, DifficultyParams>> {
 }
 
 fn save_checkpoint(params: &HashMap<String, DifficultyParams>, sweeps: usize, best_score: f64) {
-    fs::create_dir_all("scripts/params").ok();
+    let path = get_checkpoint_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
     let checkpoint = Checkpoint {
         meta: CheckpointMeta {
             sweeps_completed: sweeps,
@@ -398,7 +414,7 @@ fn save_checkpoint(params: &HashMap<String, DifficultyParams>, sweeps: usize, be
     };
 
     if let Ok(json) = serde_json::to_string_pretty(&checkpoint) {
-        let _ = fs::write(CHECKPOINT_PATH, json);
+        let _ = fs::write(&path, json);
     }
 }
 
@@ -425,7 +441,7 @@ fn main() {
         "  Continuous      : {}",
         if args.continuous { "yes" } else { "no" }
     );
-    println!("  Checkpoint      : {}\n", CHECKPOINT_PATH);
+    println!("  Checkpoint      : {}\n", get_checkpoint_path().display());
 
     // Load or init params
     let mut params: HashMap<String, DifficultyParams> = if args.resume {
@@ -691,7 +707,7 @@ fn main() {
         println!("  Total restarts       : {}", restart_count);
     }
     println!("  Total sweeps         : {}", total_sweeps);
-    println!("\n  Results saved to     : {}\n", CHECKPOINT_PATH);
+    println!("\n  Results saved to     : {}\n", get_checkpoint_path().display());
 
     save_checkpoint(&all_time_best_params, total_sweeps, final_score);
 }

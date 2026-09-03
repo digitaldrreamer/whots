@@ -1,7 +1,12 @@
 [package]
-name    = "whots-server"
-version = "0.1.0"
-edition = "2021"
+name        = "whots-server"
+version     = "0.1.0"
+edition     = "2021"
+description = "Backend game server and ISMCTS AI engine for Whots, a Nigerian card game"
+license     = "MIT"
+repository  = "https://github.com/digitaldrreamer/whots"
+homepage    = "http://whots.drreamer.digital/"
+readme      = "README.md"
 
 [dependencies]
 # Web framework

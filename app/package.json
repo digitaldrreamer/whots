@@ -1,7 +1,11 @@
 {
-	"name": "app",
+	"name": "whots-web",
+	"description": "Web frontend for Whots, a real-time Nigerian card game",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.0",
+	"license": "MIT",
+	"repository": "https://github.com/digitaldrreamer/whots",
+	"homepage": "http://whots.drreamer.digital/",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",

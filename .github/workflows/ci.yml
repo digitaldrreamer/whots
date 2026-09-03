@@ -2,12 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
 
 jobs:
-  test:
-    name: check · clippy · test
+  backend:
+    name: backend · check · clippy · test
     runs-on: ubuntu-latest
 
     services:
@@ -65,3 +65,32 @@ jobs:
           REDIS_URL: redis://localhost:6379/
           JWT_SECRET: ci-test-secret-at-least-32-chars-long
         run: cargo test
+
+  frontend:
+    name: frontend · check · lint · build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: install
+        working-directory: app
+        run: npm ci
+
+      - name: check
+        working-directory: app
+        run: npm run check
+
+      - name: lint
+        working-directory: app
+        run: npm run lint
+
+      - name: build
+        working-directory: app
+        run: npm run build
